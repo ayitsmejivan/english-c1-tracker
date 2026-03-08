@@ -11,6 +11,7 @@
     const LS_TIMER_START = 'c1t_timer_start';
     const LS_GH_TOKEN    = 'c1t_gh_token';
     const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
+    const LS_EMAIL_CFG   = 'c1t_email_cfg';
     const GIST_FILENAME  = 'c1-english-tracker-data.json';
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
@@ -40,6 +41,15 @@
 
     function saveReminder(cfg) {
         localStorage.setItem(LS_REMINDER, JSON.stringify(cfg));
+    }
+
+    function loadEmailCfg() {
+        try { return JSON.parse(localStorage.getItem(LS_EMAIL_CFG)) || {}; }
+        catch { return {}; }
+    }
+
+    function saveEmailCfg(cfg) {
+        localStorage.setItem(LS_EMAIL_CFG, JSON.stringify(cfg));
     }
 
     // ── Timezone detection ───────────────────────────────────
@@ -597,13 +607,25 @@
         const msUntil = next - now;
         clearTimeout(reminderTimeoutId);
         reminderTimeoutId = setTimeout(() => {
+            const streakMsg = `Keep your ${calcStreaks(loadSessions()).current}-day streak alive! 🔥`;
             if (Notification.permission === 'granted') {
-                new Notification('C1 English Tracker 📚', {
-                    body: `Time to study! Your scheduled session is due. Keep your ${
-                        calcStreaks(loadSessions()).current}-day streak alive! 🔥`,
+                const notifOpts = {
+                    body: `Time to study! Your scheduled session is due. ${streakMsg}`,
                     icon: '',
-                });
+                };
+                // Use Service Worker notification when available for better mobile support
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then((reg) => {
+                        reg.showNotification('C1 English Tracker 📚', notifOpts);
+                    }).catch(() => {
+                        new Notification('C1 English Tracker 📚', notifOpts);
+                    });
+                } else {
+                    new Notification('C1 English Tracker 📚', notifOpts);
+                }
             }
+            // Also send email notification if configured
+            sendEmailNotification('daily');
             // re-schedule for next day
             scheduleReminder(cfg);
         }, msUntil);
@@ -624,12 +646,23 @@
             const wk = getWeekLabel(todayStr());
             const wkSessions = sessions.filter(s => getWeekLabel(s.date) === wk);
             const wkMins = wkSessions.reduce((a, x) => a + x.duration, 0);
+            const notifBody = `This week: ${wkSessions.length} sessions, ${(wkMins / 60).toFixed(1)} hours. ${
+                calcStreaks(sessions).current > 0 ? `🔥 ${calcStreaks(sessions).current}-day streak!` : 'Start a new streak tomorrow!'}`;
+
             if (Notification.permission === 'granted') {
-                new Notification('📊 Weekly Study Summary', {
-                    body: `This week: ${wkSessions.length} sessions, ${(wkMins / 60).toFixed(1)} hours. ${
-                        calcStreaks(sessions).current > 0 ? `🔥 ${calcStreaks(sessions).current}-day streak!` : 'Start a new streak tomorrow!'}`,
-                });
+                const notifOpts = { body: notifBody };
+                if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                    navigator.serviceWorker.ready.then((reg) => {
+                        reg.showNotification('📊 Weekly Study Summary', notifOpts);
+                    }).catch(() => {
+                        new Notification('📊 Weekly Study Summary', notifOpts);
+                    });
+                } else {
+                    new Notification('📊 Weekly Study Summary', notifOpts);
+                }
             }
+            // Also send weekly email if configured
+            sendEmailNotification('weekly');
             scheduleWeeklySummary();
         }, msUntil);
     }
@@ -638,6 +671,70 @@
         const cfg = loadReminder();
         if (cfg.enabled && cfg.time) scheduleReminder(cfg);
         if (cfg.weekly) scheduleWeeklySummary();
+    }
+
+    // ── EmailJS notifications ────────────────────────────────
+    let emailjsInitialised = false;
+
+    function initEmailJS(publicKey) {
+        if (typeof emailjs === 'undefined') {
+            console.warn('[C1 Tracker] EmailJS SDK not loaded – email notifications unavailable');
+            return false;
+        }
+        if (!publicKey) return false;
+        try {
+            emailjs.init({ publicKey });
+            emailjsInitialised = true;
+            return true;
+        } catch (err) {
+            console.warn('[C1 Tracker] EmailJS init error:', err);
+            return false;
+        }
+    }
+
+    async function sendEmailNotification(type, overrideStatus) {
+        const cfg = loadEmailCfg();
+        if (!cfg.enabled || !cfg.email || !cfg.publicKey || !cfg.serviceId || !cfg.templateId) return;
+        if (!emailjsInitialised && !initEmailJS(cfg.publicKey)) return;
+
+        const sessions = loadSessions();
+        const { current } = calcStreaks(sessions);
+
+        let subject, message;
+        if (type === 'weekly') {
+            const wk = getWeekLabel(todayStr());
+            const wkSessions = sessions.filter(s => getWeekLabel(s.date) === wk);
+            const wkMins = wkSessions.reduce((a, x) => a + x.duration, 0);
+            subject = '📊 Weekly C1 Study Summary';
+            message = `Your weekly study summary:\n\n` +
+                `• Sessions this week: ${wkSessions.length}\n` +
+                `• Time studied: ${(wkMins / 60).toFixed(1)} hours\n` +
+                `• Current streak: ${current > 0 ? `🔥 ${current} days` : 'No active streak'}\n\n` +
+                `Keep up the great work! Open your tracker to log today's session.`;
+        } else {
+            subject = '📚 C1 English Study Reminder';
+            message = `Time to study! Your scheduled session is due.\n\n` +
+                `• Current streak: ${current > 0 ? `🔥 ${current} days — keep it alive!` : 'Start a new streak today!'}\n` +
+                `• Total sessions: ${sessions.length}\n\n` +
+                `Open your C1 English Tracker to log your session.`;
+        }
+
+        try {
+            await emailjs.send(cfg.serviceId, cfg.templateId, {
+                to_email: cfg.email,
+                subject,
+                message,
+            });
+            if (overrideStatus) overrideStatus('✅ Email sent!', 'ok');
+        } catch (err) {
+            console.warn('[C1 Tracker] Email send error:', err);
+            if (overrideStatus) overrideStatus(`❌ Email failed: ${err.text || err.message || 'unknown error'}`, 'error');
+        }
+    }
+
+    function applyEmailJSInit() {
+        const cfg = loadEmailCfg();
+        if (cfg.enabled && cfg.publicKey) initEmailJS(cfg.publicKey);
     }
 
     // ── PDF export (print-based, no external deps) ───────────
@@ -948,14 +1045,28 @@
             document.getElementById('reminder-time').value = cfg.time || '09:00';
             document.getElementById('reminder-smart').checked = !!cfg.smart;
             document.getElementById('reminder-weekly').checked = !!cfg.weekly;
+
+            // Pre-fill email config
+            const emailCfg = loadEmailCfg();
+            document.getElementById('email-notif-enabled').checked = !!emailCfg.enabled;
+            document.getElementById('email-notif-fields').style.display = emailCfg.enabled ? 'block' : 'none';
+            document.getElementById('email-notif-address').value = emailCfg.email || '';
+            document.getElementById('emailjs-public-key').value = emailCfg.publicKey || '';
+            document.getElementById('emailjs-service-id').value = emailCfg.serviceId || '';
+            document.getElementById('emailjs-template-id').value = emailCfg.templateId || '';
+
+            document.getElementById('reminder-status').textContent = '';
+            document.getElementById('test-email-status').textContent = '';
             document.getElementById('reminder-modal').style.display = 'flex';
         });
-        document.getElementById('btn-close-reminder').addEventListener('click', () => {
+
+        function closeReminderModal() {
             document.getElementById('reminder-modal').style.display = 'none';
-        });
+        }
+        document.getElementById('btn-close-reminder').addEventListener('click', closeReminderModal);
+        document.getElementById('btn-close-reminder-x').addEventListener('click', closeReminderModal);
         document.getElementById('reminder-modal').addEventListener('click', (e) => {
-            if (e.target === document.getElementById('reminder-modal'))
-                document.getElementById('reminder-modal').style.display = 'none';
+            if (e.target === document.getElementById('reminder-modal')) closeReminderModal();
         });
 
         document.getElementById('reminder-smart').addEventListener('change', function () {
@@ -965,6 +1076,44 @@
                 document.getElementById('reminder-time').value =
                     `${String(hr).padStart(2, '0')}:00`;
             }
+        });
+
+        // Toggle email fields visibility
+        document.getElementById('email-notif-enabled').addEventListener('change', function () {
+            document.getElementById('email-notif-fields').style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Show/hide EmailJS public key
+        document.getElementById('btn-toggle-emailjs-key').addEventListener('click', () => {
+            const inp = document.getElementById('emailjs-public-key');
+            inp.type = inp.type === 'password' ? 'text' : 'password';
+        });
+
+        // Test email button
+        document.getElementById('btn-test-email').addEventListener('click', async () => {
+            const publicKey  = document.getElementById('emailjs-public-key').value.trim();
+            const serviceId  = document.getElementById('emailjs-service-id').value.trim();
+            const templateId = document.getElementById('emailjs-template-id').value.trim();
+            const email      = document.getElementById('email-notif-address').value.trim();
+
+            const statusEl = document.getElementById('test-email-status');
+            if (!email || !publicKey || !serviceId || !templateId) {
+                statusEl.textContent = '❗ Fill in all email fields first.';
+                statusEl.className = 'test-email-status status-error';
+                return;
+            }
+
+            // Temporarily save and init to allow the test send
+            const tempCfg = { enabled: true, email, publicKey, serviceId, templateId };
+            saveEmailCfg(tempCfg);
+            emailjsInitialised = false; // force re-init with new key
+            statusEl.textContent = '📤 Sending…';
+            statusEl.className = 'test-email-status';
+
+            await sendEmailNotification('daily', (msg, type) => {
+                statusEl.textContent = msg;
+                statusEl.className = `test-email-status status-${type}`;
+            });
         });
 
         document.getElementById('btn-save-reminder').addEventListener('click', async () => {
@@ -984,12 +1133,33 @@
             scheduleReminder(cfg);
             if (weekly) scheduleWeeklySummary();
 
-            document.getElementById('reminder-status').textContent =
-                `✅ Reminder set for ${time} daily${weekly ? ' + weekly summary' : ''}.`;
+            // Save email config
+            const emailEnabled  = document.getElementById('email-notif-enabled').checked;
+            const emailAddress  = document.getElementById('email-notif-address').value.trim();
+            const ejsPublicKey  = document.getElementById('emailjs-public-key').value.trim();
+            const ejsServiceId  = document.getElementById('emailjs-service-id').value.trim();
+            const ejsTemplateId = document.getElementById('emailjs-template-id').value.trim();
+
+            const emailCfg = {
+                enabled:    emailEnabled,
+                email:      emailAddress,
+                publicKey:  ejsPublicKey,
+                serviceId:  ejsServiceId,
+                templateId: ejsTemplateId,
+            };
+            saveEmailCfg(emailCfg);
+            if (emailEnabled && ejsPublicKey) {
+                emailjsInitialised = false;
+                initEmailJS(ejsPublicKey);
+            }
+
+            let statusMsg = `✅ Browser reminder set for ${time} daily${weekly ? ' + weekly summary' : ''}.`;
+            if (emailEnabled && emailAddress) statusMsg += ` Email notifications enabled for ${emailAddress}.`;
+            document.getElementById('reminder-status').textContent = statusMsg;
 
             setTimeout(() => {
-                document.getElementById('reminder-modal').style.display = 'none';
-            }, 1500);
+                closeReminderModal();
+            }, 2000);
         });
 
         // GitHub Sync modal
@@ -1088,9 +1258,11 @@
     // ── Bootstrap ────────────────────────────────────────────
     async function init() {
         detectTimezone();
+        registerServiceWorker();
         initEventListeners();
         renderAll();
         applyReminderSettings();
+        applyEmailJSInit();
 
         // If GitHub sync is configured, pull latest data on startup
         if (ghToken() && ghGistId()) {
@@ -1102,6 +1274,14 @@
                 console.warn('[C1 Tracker] Startup Gist pull failed:', e);
             }
         }
+    }
+
+    // ── Service Worker registration ──────────────────────────
+    function registerServiceWorker() {
+        if (!('serviceWorker' in navigator)) return;
+        navigator.serviceWorker.register('./sw.js').catch((err) => {
+            console.warn('[C1 Tracker] Service Worker registration failed:', err);
+        });
     }
 
     if (document.readyState === 'loading') {

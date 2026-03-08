@@ -860,6 +860,159 @@ main {
     color: var(--accent2);
 }
 
+/* ── Notification sections in reminder modal ─────────── */
+.modal-box--reminder {
+    max-width: 520px;
+}
+
+.notif-section {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+
+.notif-section--email {
+    border-color: rgba(124,110,255,.3);
+}
+
+.notif-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: .92rem;
+    font-weight: 600;
+}
+
+.notif-section-icon {
+    font-size: 1rem;
+}
+
+.notif-section-header .toggle-switch {
+    margin-left: auto;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: .88rem;
+    color: var(--text-muted);
+}
+.checkbox-label:hover { color: var(--text); }
+.checkbox-label input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+/* Toggle switch */
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+.toggle-switch input { display: none; }
+.toggle-track {
+    width: 38px;
+    height: 22px;
+    background: var(--bg4);
+    border: 1px solid var(--border2);
+    border-radius: 11px;
+    position: relative;
+    transition: background var(--transition), border-color var(--transition);
+}
+.toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform var(--transition), background var(--transition);
+}
+.toggle-switch input:checked + .toggle-track {
+    background: rgba(124,110,255,.35);
+    border-color: var(--accent);
+}
+.toggle-switch input:checked + .toggle-track::after {
+    transform: translateX(16px);
+    background: var(--accent);
+}
+
+/* EmailJS config details/summary */
+.emailjs-config-details {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+}
+
+.emailjs-config-summary {
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg4);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    transition: background var(--transition), color var(--transition);
+}
+.emailjs-config-summary::-webkit-details-marker { display: none; }
+.emailjs-config-summary:hover { background: var(--border); color: var(--text); }
+.emailjs-config-details[open] .emailjs-config-summary { color: var(--accent); }
+
+.emailjs-config-hint {
+    margin-left: auto;
+    font-size: .75rem;
+    font-weight: 400;
+    opacity: .7;
+}
+
+.emailjs-config-body {
+    padding: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.emailjs-intro {
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+
+.emailjs-steps {
+    padding-left: 18px;
+    font-size: .82rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.emailjs-steps code {
+    background: var(--bg4);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: .8rem;
+    color: var(--accent5);
+}
+
+.test-email-status {
+    font-size: .82rem;
+    margin-left: 8px;
+    color: var(--text-muted);
+}
+.test-email-status.status-ok    { color: var(--accent2); }
+.test-email-status.status-error { color: var(--accent3); }
+
 /* GitHub modal specific */
 .gh-connected-info {
     background: rgba(0,229,184,.07);

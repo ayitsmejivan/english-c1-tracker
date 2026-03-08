@@ -8,6 +8,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#7c6eff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="C1 Tracker">
 </head>
 <body>
     <!-- ===== HEADER ===== -->
@@ -210,25 +216,93 @@
 
     <!-- ===== REMINDER MODAL ===== -->
     <div id="reminder-modal" class="modal" style="display:none">
-        <div class="modal-box">
-            <h3>🔔 Smart Reminders</h3>
-            <p>Based on your study patterns, we'll remind you at the best time each day.</p>
-            <div class="form-group">
-                <label for="reminder-time">Preferred reminder time</label>
-                <input type="time" id="reminder-time" value="09:00">
+        <div class="modal-box modal-box--reminder">
+            <div class="modal-header-row">
+                <h3>🔔 Smart Reminders</h3>
+                <button class="modal-close-x" id="btn-close-reminder-x" title="Close">✕</button>
             </div>
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="reminder-smart"> Use smart time (auto-detected from your patterns)
-                </label>
+            <p class="modal-desc">Get notified in your <strong>browser</strong> and/or by <strong>email</strong> when it's time to study.</p>
+
+            <!-- Browser notifications -->
+            <div class="notif-section">
+                <div class="notif-section-header">
+                    <span class="notif-section-icon">🖥️</span>
+                    <strong>Browser Notifications</strong>
+                </div>
+                <div class="form-group">
+                    <label for="reminder-time">Preferred reminder time</label>
+                    <input type="time" id="reminder-time" value="09:00">
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="reminder-smart"> Use smart time (auto-detected from your patterns)
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="reminder-weekly"> Weekly summary notification (Sundays at 09:00)
+                    </label>
+                </div>
             </div>
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="reminder-weekly"> Weekly summary notification (Sundays)
-                </label>
+
+            <!-- Email notifications -->
+            <div class="notif-section notif-section--email">
+                <div class="notif-section-header">
+                    <span class="notif-section-icon">✉️</span>
+                    <strong>Email Notifications</strong>
+                    <label class="toggle-switch" title="Enable email notifications">
+                        <input type="checkbox" id="email-notif-enabled">
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+
+                <div id="email-notif-fields" style="display:none">
+                    <div class="form-group">
+                        <label for="email-notif-address">Your email address</label>
+                        <input type="email" id="email-notif-address" placeholder="you@example.com" autocomplete="email">
+                    </div>
+
+                    <!-- EmailJS configuration (collapsible) -->
+                    <details class="emailjs-config-details">
+                        <summary class="emailjs-config-summary">
+                            ⚙️ EmailJS Configuration
+                            <span class="emailjs-config-hint">Click to expand</span>
+                        </summary>
+                        <div class="emailjs-config-body">
+                            <p class="form-hint emailjs-intro">
+                                Email notifications use <a href="https://www.emailjs.com/" target="_blank" rel="noopener">EmailJS</a> (free, no backend needed).
+                                <a href="https://www.emailjs.com/docs/tutorial/overview/" target="_blank" rel="noopener">Setup guide ↗</a>
+                            </p>
+                            <ol class="emailjs-steps">
+                                <li>Sign up free at <a href="https://www.emailjs.com/" target="_blank" rel="noopener">emailjs.com</a></li>
+                                <li>Add an <strong>Email Service</strong> (Gmail, Outlook, etc.)</li>
+                                <li>Create an <strong>Email Template</strong> with variables: <code>{{to_email}}</code>, <code>{{subject}}</code>, <code>{{message}}</code></li>
+                                <li>Copy your credentials below</li>
+                            </ol>
+                            <div class="form-group">
+                                <label for="emailjs-public-key">Public Key</label>
+                                <div class="input-with-toggle">
+                                    <input type="password" id="emailjs-public-key" placeholder="e.g. abc123XYZ" autocomplete="off">
+                                    <button type="button" class="toggle-visibility" id="btn-toggle-emailjs-key" title="Show/hide">👁</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="emailjs-service-id">Service ID</label>
+                                <input type="text" id="emailjs-service-id" placeholder="e.g. service_xxxxxxx" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label for="emailjs-template-id">Template ID</label>
+                                <input type="text" id="emailjs-template-id" placeholder="e.g. template_xxxxxxx" autocomplete="off">
+                            </div>
+                            <button type="button" id="btn-test-email" class="btn btn-secondary btn-sm">📧 Send Test Email</button>
+                            <span id="test-email-status" class="test-email-status"></span>
+                        </div>
+                    </details>
+                </div>
             </div>
+
             <div class="modal-actions">
-                <button id="btn-save-reminder" class="btn btn-primary">Save</button>
+                <button id="btn-save-reminder" class="btn btn-primary">Save Reminders</button>
                 <button id="btn-close-reminder" class="btn btn-outline">Cancel</button>
             </div>
             <p id="reminder-status" class="reminder-status"></p>
@@ -295,6 +369,7 @@
         </div>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
