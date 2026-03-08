@@ -8,10 +8,11 @@
     // ── Storage helpers ──────────────────────────────────────
     const LS_SESSIONS    = 'c1t_sessions';
     const LS_REMINDER    = 'c1t_reminder';
-    const LS_TIMER_START = 'c1t_timer_start';
-    const LS_GH_TOKEN    = 'c1t_gh_token';
-    const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
-    const GIST_FILENAME  = 'c1-english-tracker-data.json';
+    const LS_TIMER_START     = 'c1t_timer_start';
+    const LS_GH_TOKEN        = 'c1t_gh_token';
+    const LS_GH_GIST_ID      = 'c1t_gh_gist_id';
+    const GIST_FILENAME      = 'c1-english-tracker-data.json';
+    const GIST_DATA_VERSION  = 2;
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
     let reminderTimeoutId = null;
@@ -30,7 +31,8 @@
 
     function saveSessions(sessions) {
         localStorage.setItem(LS_SESSIONS, JSON.stringify(sessions));
-        syncToGist(); // async – fire and forget
+        localStorage.setItem('c1t_last_save', Date.now().toString());
+        syncToGist(); // async – fire and forget; sync status shown in header
     }
 
     function loadReminder() {
@@ -714,7 +716,7 @@
     // Find an existing gist that contains our file, or create a new private one.
     async function findOrCreateGist(token) {
         const headers = {
-            'Authorization': `token ${token}`,
+            'Authorization': `Bearer ${token}`,
             'Accept': 'application/vnd.github.v3+json',
         };
         // Search existing gists (up to 100)
@@ -733,7 +735,7 @@
                 public: false,
                 files: {
                     [GIST_FILENAME]: {
-                        content: JSON.stringify({ sessions: [], version: 2, createdAt: new Date().toISOString() }, null, 2),
+                        content: JSON.stringify({ sessions: [], version: GIST_DATA_VERSION, createdAt: new Date().toISOString() }, null, 2),
                     },
                 },
             }),
@@ -752,11 +754,11 @@
         setSyncStatus('syncing');
         try {
             const sessions = loadSessions();
-            const payload  = { sessions, version: 2, updatedAt: new Date().toISOString() };
+            const payload  = { sessions, version: GIST_DATA_VERSION, updatedAt: new Date().toISOString() };
             const res = await fetch(`https://api.github.com/gists/${gistId}`, {
                 method: 'PATCH',
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/vnd.github.v3+json',
                     'Content-Type': 'application/json',
                 },
@@ -770,7 +772,7 @@
         }
     }
 
-    // Pull sessions from the Gist and merge (Gist wins if it has more sessions).
+    // Pull sessions from the Gist and merge using timestamps (most-recently-updated wins).
     async function loadFromGist() {
         const token  = ghToken();
         const gistId = ghGistId();
@@ -780,7 +782,7 @@
         try {
             const res = await fetch(`https://api.github.com/gists/${gistId}`, {
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/vnd.github.v3+json',
                 },
             });
@@ -791,9 +793,12 @@
 
             const data = JSON.parse(file.content);
             if (Array.isArray(data.sessions)) {
-                // Merge: keep the dataset with more entries (or use Gist if equal)
-                const local = loadSessions();
-                if (data.sessions.length >= local.length) {
+                // Merge: use Gist data if it was updated more recently than local (or local has no timestamp)
+                const local       = loadSessions();
+                const gistUpdated = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+                const localKey    = 'c1t_last_save';
+                const localSaved  = parseInt(localStorage.getItem(localKey) || '0', 10);
+                if (gistUpdated >= localSaved || data.sessions.length > local.length) {
                     localStorage.setItem(LS_SESSIONS, JSON.stringify(data.sessions));
                 }
             }

@@ -104,6 +104,7 @@ header h1 {
     font-size: 1.2rem;
     font-weight: 800;
     letter-spacing: -.02em;
+    color: #fff;
     background: linear-gradient(135deg, #fff 30%, var(--accent2));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -475,7 +476,7 @@ main {
 
 .stat-value {
     font-size: 2rem;
-    font-weight: 900;
+    font-weight: 800;
     color: var(--accent2);
     letter-spacing: -.04em;
     line-height: 1.1;
@@ -1001,3 +1002,16 @@ main {
     line-height: 1.6;
 }
 .storage-text strong { color: var(--text); }
+
+/* ---- Accessibility: reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+    .level-progress-fill,
+    .course-bar-fill {
+        transition: none !important;
+    }
+}
