@@ -12,6 +12,7 @@
     const LS_GH_TOKEN    = 'c1t_gh_token';
     const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
     const LS_VOCABULARY  = 'c1t_vocabulary';
+    const LS_UPDATED_AT  = 'c1t_updated_at';
     const GIST_FILENAME  = 'c1-english-tracker-data.json';
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
@@ -31,7 +32,9 @@
 
     function saveSessions(sessions) {
         localStorage.setItem(LS_SESSIONS, JSON.stringify(sessions));
-        syncToGist(); // async – fire and forget
+        localStorage.setItem(LS_UPDATED_AT, new Date().toISOString());
+        syncToGist();    // async – fire and forget
+        syncToServer(); // async – fire and forget
     }
 
     function loadReminder() {
@@ -51,7 +54,9 @@
 
     function saveVocabulary(vocab) {
         localStorage.setItem(LS_VOCABULARY, JSON.stringify(vocab));
-        syncToGist();
+        localStorage.setItem(LS_UPDATED_AT, new Date().toISOString());
+        syncToGist();    // async – fire and forget
+        syncToServer(); // async – fire and forget
     }
 
     function genId() {
@@ -1190,6 +1195,56 @@
         el.className   = 'sync-status ' + s.cls;
     }
 
+    // ── Server-side data sync ─────────────────────────────────
+    async function syncToServer() {
+        try {
+            const sessions   = loadSessions();
+            const vocabulary = loadVocabulary();
+            const payload    = { sessions, vocabulary, version: 3, updatedAt: new Date().toISOString() };
+            const res = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) throw new Error(`Server sync failed ${res.status}`);
+        } catch (err) {
+            // Non-fatal – local data is still usable
+            console.warn('[C1 Tracker] Server sync error:', err);
+        }
+    }
+
+    async function loadFromServer() {
+        try {
+            const res = await fetch('/api/data');
+            if (!res.ok) throw new Error(`Server load failed ${res.status}`);
+            const data = await res.json();
+            if (!Array.isArray(data.sessions) && !Array.isArray(data.vocabulary)) return false;
+
+            // Use the server data only when it is newer than what is in localStorage.
+            // This ensures intentional local changes (e.g. deletions) are not overwritten
+            // by a stale server copy when the previous sync failed.
+            const serverTime = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+            const localTime  = localStorage.getItem(LS_UPDATED_AT)
+                ? new Date(localStorage.getItem(LS_UPDATED_AT)).getTime()
+                : 0;
+
+            if (serverTime >= localTime) {
+                if (Array.isArray(data.sessions)) {
+                    localStorage.setItem(LS_SESSIONS, JSON.stringify(data.sessions));
+                }
+                if (Array.isArray(data.vocabulary)) {
+                    localStorage.setItem(LS_VOCABULARY, JSON.stringify(data.vocabulary));
+                }
+                return true;
+            }
+            return false;
+        } catch (err) {
+            // Non-fatal – could be running as a plain static file (no server)
+            console.warn('[C1 Tracker] Server load error:', err);
+            return false;
+        }
+    }
+
     // Find an existing gist that contains our file, or create a new private one.
     async function findOrCreateGist(token) {
         const headers = {
@@ -1717,6 +1772,15 @@
         initEventListeners();
         renderAll();
         applyReminderSettings();
+
+        // Pull latest data from the server on startup (if running with a backend)
+        try {
+            const pulledFromServer = await loadFromServer();
+            if (pulledFromServer) renderAll();
+        } catch (e) {
+            // Non-fatal: could be a plain static deployment with no server
+            console.warn('[C1 Tracker] Startup server pull failed:', e);
+        }
 
         // If GitHub sync is configured, pull latest data on startup
         if (ghToken() && ghGistId()) {
