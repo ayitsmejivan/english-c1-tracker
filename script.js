@@ -1800,4 +1800,24 @@
         init();
     }
 
+    // ── Scroll-reveal for cards ───────────────────────────────
+    (function () {
+        if (!('IntersectionObserver' in window)) {
+            // Fallback: just show everything immediately
+            document.querySelectorAll('.card').forEach(el => el.classList.add('revealed'));
+            return;
+        }
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry, i) => {
+                if (entry.isIntersecting) {
+                    // Stagger the animation slightly
+                    setTimeout(() => entry.target.classList.add('revealed'), i * 60);
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+        document.querySelectorAll('.card').forEach(card => observer.observe(card));
+    }());
+
 }());
