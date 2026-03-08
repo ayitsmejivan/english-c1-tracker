@@ -189,65 +189,73 @@
         }
     }
 
-    // ── Time-of-day analysis ─────────────────────────────────
-    let todChartInstance = null;
-
+    // ── Time-of-day analysis (native Canvas 2D) ──────────────
     function renderTodChart(sessions) {
-        const buckets = new Array(24).fill(0); // total minutes per hour
-
+        const buckets = new Array(24).fill(0);
         for (const s of sessions) {
             if (!s.time) continue;
             const hr = parseInt(s.time.split(':')[0], 10);
             if (hr >= 0 && hr < 24) buckets[hr] += s.duration || 0;
         }
 
-        // Find best hour
-        const maxMins = Math.max(...buckets);
-        const bestHr  = buckets.indexOf(maxMins);
-        const labels  = Array.from({ length: 24 }, (_, i) => {
-            const h = i % 12 || 12;
-            return (i < 12 ? h + ' AM' : h + ' PM');
-        });
+        const maxMins = Math.max(...buckets, 1);
+        const bestHr  = buckets.indexOf(Math.max(...buckets));
 
-        if (maxMins > 0) {
+        if (Math.max(...buckets) > 0) {
             const ampm = bestHr < 12 ? 'AM' : 'PM';
             const h = (bestHr % 12) || 12;
             document.getElementById('tod-insight').textContent =
-                `📈 You study best around ${h}:00 ${ampm} (${Math.round(maxMins)} min total). Keep it up!`;
+                `📈 You study best around ${h}:00 ${ampm} (${Math.round(buckets[bestHr])} min total). Keep it up!`;
+        } else {
+            document.getElementById('tod-insight').textContent =
+                'No data yet – log your first session to see when you study best!';
         }
 
-        const ctx = document.getElementById('todChart').getContext('2d');
-        const colors = buckets.map((v, i) => i === bestHr && v > 0 ? '#00d4aa' : '#6c63ff55');
+        const canvas = document.getElementById('todChart');
+        const ctx    = canvas.getContext('2d');
+        const W = canvas.width  = canvas.offsetWidth  || 600;
+        const H = canvas.height = 180;
+        ctx.clearRect(0, 0, W, H);
 
-        if (todChartInstance) todChartInstance.destroy();
+        const padL = 36, padR = 10, padT = 10, padB = 28;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const barW = Math.max(2, (chartW / 24) - 2);
 
-        todChartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'Minutes studied',
-                    data: buckets,
-                    backgroundColor: colors,
-                    borderRadius: 4,
-                }],
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => `${ctx.raw} min`,
-                        },
-                    },
-                },
-                scales: {
-                    x: { ticks: { color: '#8a8fa8', font: { size: 10 } }, grid: { color: '#2e3347' } },
-                    y: { ticks: { color: '#8a8fa8' }, grid: { color: '#2e3347' } },
-                },
-            },
-        });
+        // Grid lines
+        ctx.strokeStyle = '#2e3347';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = padT + chartH - (i / 4) * chartH;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillStyle = '#8a8fa8';
+            ctx.font = '10px sans-serif';
+            ctx.fillText(Math.round((maxMins * i) / 4), 2, y + 4);
+        }
+
+        // Bars
+        for (let i = 0; i < 24; i++) {
+            const x = padL + (i / 24) * chartW + 1;
+            const barH = (buckets[i] / maxMins) * chartH;
+            const y = padT + chartH - barH;
+            ctx.fillStyle = (i === bestHr && buckets[i] > 0) ? '#00d4aa' : '#6c63ff88';
+            ctx.beginPath();
+            const r = 3;
+            ctx.roundRect
+                ? ctx.roundRect(x, y, barW, barH, [r, r, 0, 0])
+                : ctx.rect(x, y, barW, barH);
+            ctx.fill();
+        }
+
+        // X-axis labels (every 3 hours)
+        ctx.fillStyle = '#8a8fa8';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        for (let i = 0; i < 24; i += 3) {
+            const x = padL + (i / 24) * chartW + barW / 2 + 1;
+            const label = i === 0 ? '12A' : i < 12 ? `${i}A` : i === 12 ? '12P' : `${i - 12}P`;
+            ctx.fillText(label, x, H - 6);
+        }
     }
 
     // ── Stats ────────────────────────────────────────────────
@@ -628,43 +636,57 @@
         if (cfg.weekly) scheduleWeeklySummary();
     }
 
-    // ── PDF export ───────────────────────────────────────────
+    // ── PDF export (print-based, no external deps) ───────────
     function downloadPDF() {
         const sessions = loadSessions();
         if (!sessions.length) { showToast('No sessions to export.'); return; }
 
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-
-        doc.setFontSize(18);
-        doc.text('C1 English Tracker – Study Report', 14, 20);
-
-        doc.setFontSize(11);
         const totalMins = sessions.reduce((s, x) => s + x.duration, 0);
         const { current, best } = calcStreaks(sessions);
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        doc.text(`Generated: ${new Date().toLocaleDateString()} | Timezone: ${tz}`, 14, 30);
-        doc.text(`Total hours: ${(totalMins / 60).toFixed(1)} | Sessions: ${sessions.length} | Best streak: ${best} days`, 14, 38);
-
         const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
 
-        doc.autoTable({
-            startY: 46,
-            head: [['Date', 'Time', 'Topic', 'Duration', 'Notes']],
-            body: sorted.map(s => [
-                formatDate(s.date),
-                s.time || '–',
-                s.topic,
-                formatDuration(s.duration),
-                (s.notes || '').slice(0, 60),
-            ]),
-            styles: { fontSize: 9, cellPadding: 3 },
-            headStyles: { fillColor: [108, 99, 255] },
-            alternateRowStyles: { fillColor: [245, 245, 255] },
-        });
+        const rows = sorted.map(s => `
+            <tr>
+                <td>${formatDate(s.date)}</td>
+                <td>${s.time || '–'}</td>
+                <td>${s.topic}</td>
+                <td>${formatDuration(s.duration)}</td>
+                <td>${(s.notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+            </tr>`).join('');
 
-        doc.save('c1-english-study-report.pdf');
-        showToast('📄 PDF downloaded!');
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>C1 English Study Report</title>
+<style>
+  body { font-family: sans-serif; font-size: 12px; color: #111; padding: 24px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .meta { color: #555; font-size: 11px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #6c63ff; color: #fff; padding: 7px 10px; text-align: left; font-size: 11px; }
+  td { padding: 6px 10px; border-bottom: 1px solid #ddd; font-size: 11px; }
+  tr:nth-child(even) td { background: #f5f5ff; }
+  @media print { body { padding: 0; } }
+</style>
+</head><body>
+<h1>C1 English Tracker – Study Report</h1>
+<div class="meta">
+  Generated: ${new Date().toLocaleDateString()} | Timezone: ${tz}<br>
+  Total hours: ${(totalMins / 60).toFixed(1)} | Sessions: ${sessions.length} | Best streak: ${best} days
+</div>
+<table>
+  <thead><tr><th>Date</th><th>Time</th><th>Topic</th><th>Duration</th><th>Notes</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+</body></html>`;
+
+        const win = window.open('', '_blank');
+        if (!win) { showToast('❌ Pop-up blocked. Allow pop-ups to export PDF.'); return; }
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => { win.print(); }, 500);
+        showToast('📄 Print dialog opened – save as PDF!');
     }
 
     // ── Cloud backup: export / import ────────────────────────
