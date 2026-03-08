@@ -3,107 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>C1 Course Progress Tracker</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-        nav { display: flex; background: #4CAF50; padding: 10px; color: white; }
-        nav a { color: white; padding: 14px 20px; text-decoration: none; text-align: center; }
-        nav a:hover { background: #45a049; }
-        .container { padding: 20px; }
-        .module { margin: 20px 0; }
-        .datepicker { display: flex; flex-direction: column; }
-        .emoji { font-size: 2em; }
-        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); }
-        .day { padding: 10px; border: 1px solid #ddd; }
-        @media (max-width: 600px) { nav { flex-direction: column; } }
-    </style>
+    <title>Advanced C1 English Course Progress Tracker</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
-<nav>
-    <a href="#course-map">Course Map</a>
-    <a href="#study-log">Study Log</a>
-    <a href="#habit-calendar">Habit Calendar</a>
-</nav>
-
-<div class="container">
+    <header>
+        <h1>Advanced C1 English Course Progress Tracker</h1>
+    </header>
     <section id="course-map">
-        <h1>Visual Course Map</h1>
-        <div class="module">
-            <h2>Module 1: Introduction</h2>
-            <input type="checkbox"> Completed
-        </div>
-        <div class="module">
-            <h2>Module 2: Grammar</h2>
-            <input type="checkbox"> Completed
-        </div>
-        <!-- Repeat for all 16 modules -->
-        <div class="module">
-            <h2>Module 16: Conclusion</h2>
-            <input type="checkbox"> Completed
-        </div>
+        <h2>Course Map</h2>
+        <ul>
+            <li>Sentence Stress</li>
+            <li>Word Stress</li>
+            <li>Intonation</li>
+            <li>Connected Speech</li>
+            <li>Weak Vowels</li>
+            <li>Irregular Plurals</li>
+            <li>Difficult Consonants</li>
+            <li>Phrasal Verbs</li>
+            <li>Collocations</li>
+            <li>Idioms</li>
+            <li>Advanced Grammar</li>
+            <li>Business English</li>
+            <li>Academic Writing</li>
+            <li>Presentation Skills</li>
+            <li>Debate Techniques</li>
+            <li>Accent Reduction</li>
+        </ul>
     </section>
-
     <section id="study-log">
-        <h1>Daily Study Log</h1>
-        <div class="datepicker">
-            <input type="date" id="study-date">
-            <select id="module-dropdown">
-                <option value="">Select Module</option>
-                <option value="module1">Module 1</option>
-                <option value="module2">Module 2</option>
-                <!-- Repeat for all modules -->
-                <option value="module16">Module 16</option>
-            </select>
-            <input type="number" id="time-spent" placeholder="Time Spent (in hours)">
-            <div class="emoji">
-                <span>😊</span> <span>😐</span> <span>😞</span>
-            </div>
-            <textarea id="new-word" placeholder="New Word..."></textarea>
-            <textarea id="notes" placeholder="Notes..."></textarea>
-            <button onclick="saveLog()">Save Log</button>
-        </div>
+        <h2>Study Log</h2>
+        <p>Track your study sessions here...</p>
     </section>
-
     <section id="habit-calendar">
-        <h1>Habit Calendar</h1>
-        <div class="calendar">
-            <!-- Calendar days will be generated here -->
-        </div>
+        <h2>Habit Calendar</h2>
+        <p>Visualize your study habits...</p>
     </section>
-</div>
-
-<script>
-    // LocalStorage Functions
-    function saveLog() {
-        const date = document.getElementById('study-date').value;
-        const module = document.getElementById('module-dropdown').value;
-        const timeSpent = document.getElementById('time-spent').value;
-        const newWord = document.getElementById('new-word').value;
-        const notes = document.getElementById('notes').value;
-
-        const log = { date, module, timeSpent, newWord, notes };
-        let logs = JSON.parse(localStorage.getItem('studyLogs')) || [];
-        logs.push(log);
-        localStorage.setItem('studyLogs', JSON.stringify(logs));
-        alert('Log saved!');
-    }
-
-    function loadCalendar() {
-        // Load calendar data from localStorage and update UI
-        const calendar = document.querySelector('.calendar');
-        const logs = JSON.parse(localStorage.getItem('studyLogs')) || [];
-        // Example: Generate calendar days
-        for (let i = 1; i <= 31; i++) {
-            const day = document.createElement('div');
-            day.className = 'day';
-            day.innerText = i;
-            calendar.appendChild(day);
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', loadCalendar);
-</script>
-
+    <section id="analytics">
+        <h2>Analytics Dashboard</h2>
+        <p>View your progress here...</p>
+    </section>
+    <script src="script.js"></script>
 </body>
 </html>
