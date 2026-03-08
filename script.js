@@ -6,9 +6,12 @@
     'use strict';
 
     // ── Storage helpers ──────────────────────────────────────
-    const LS_SESSIONS  = 'c1t_sessions';
-    const LS_REMINDER  = 'c1t_reminder';
+    const LS_SESSIONS    = 'c1t_sessions';
+    const LS_REMINDER    = 'c1t_reminder';
     const LS_TIMER_START = 'c1t_timer_start';
+    const LS_GH_TOKEN    = 'c1t_gh_token';
+    const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
+    const GIST_FILENAME  = 'c1-english-tracker-data.json';
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
     let reminderTimeoutId = null;
@@ -27,6 +30,7 @@
 
     function saveSessions(sessions) {
         localStorage.setItem(LS_SESSIONS, JSON.stringify(sessions));
+        syncToGist(); // async – fire and forget
     }
 
     function loadReminder() {
@@ -689,6 +693,155 @@
         showToast('📄 Print dialog opened – save as PDF!');
     }
 
+    // ── GitHub Gist Sync ─────────────────────────────────────
+    function ghToken()  { return localStorage.getItem(LS_GH_TOKEN) || ''; }
+    function ghGistId() { return localStorage.getItem(LS_GH_GIST_ID) || ''; }
+
+    function setSyncStatus(status) {
+        const el = document.getElementById('sync-status');
+        if (!el) return;
+        const MAP = {
+            syncing: { text: '⟳ Syncing…',    cls: 'sync-syncing' },
+            synced:  { text: '✓ Synced',        cls: 'sync-ok'     },
+            error:   { text: '✗ Sync failed',   cls: 'sync-error'  },
+            none:    { text: '○ Not synced',     cls: 'sync-none'   },
+        };
+        const s = MAP[status] || MAP.none;
+        el.textContent = s.text;
+        el.className   = 'sync-status ' + s.cls;
+    }
+
+    // Find an existing gist that contains our file, or create a new private one.
+    async function findOrCreateGist(token) {
+        const headers = {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+        };
+        // Search existing gists (up to 100)
+        const listRes = await fetch('https://api.github.com/gists?per_page=100', { headers });
+        if (!listRes.ok) throw new Error(`GitHub API error ${listRes.status}: ${await listRes.text()}`);
+        const gists = await listRes.json();
+        const found = gists.find(g => Object.prototype.hasOwnProperty.call(g.files, GIST_FILENAME));
+        if (found) return found.id;
+
+        // Create a new private gist
+        const createRes = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                description: 'C1 English Tracker – Study Progress',
+                public: false,
+                files: {
+                    [GIST_FILENAME]: {
+                        content: JSON.stringify({ sessions: [], version: 2, createdAt: new Date().toISOString() }, null, 2),
+                    },
+                },
+            }),
+        });
+        if (!createRes.ok) throw new Error(`Create gist failed ${createRes.status}: ${await createRes.text()}`);
+        const newGist = await createRes.json();
+        return newGist.id;
+    }
+
+    // Push current local sessions to the Gist.
+    async function syncToGist() {
+        const token  = ghToken();
+        const gistId = ghGistId();
+        if (!token || !gistId) return;
+
+        setSyncStatus('syncing');
+        try {
+            const sessions = loadSessions();
+            const payload  = { sessions, version: 2, updatedAt: new Date().toISOString() };
+            const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } } }),
+            });
+            if (!res.ok) throw new Error(`PATCH gist failed ${res.status}`);
+            setSyncStatus('synced');
+        } catch (err) {
+            setSyncStatus('error');
+            console.error('[C1 Tracker] GitHub sync error:', err);
+        }
+    }
+
+    // Pull sessions from the Gist and merge (Gist wins if it has more sessions).
+    async function loadFromGist() {
+        const token  = ghToken();
+        const gistId = ghGistId();
+        if (!token || !gistId) return false;
+
+        setSyncStatus('syncing');
+        try {
+            const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            });
+            if (!res.ok) throw new Error(`GET gist failed ${res.status}`);
+            const gist   = await res.json();
+            const file   = gist.files[GIST_FILENAME];
+            if (!file || !file.content) return false;
+
+            const data = JSON.parse(file.content);
+            if (Array.isArray(data.sessions)) {
+                // Merge: keep the dataset with more entries (or use Gist if equal)
+                const local = loadSessions();
+                if (data.sessions.length >= local.length) {
+                    localStorage.setItem(LS_SESSIONS, JSON.stringify(data.sessions));
+                }
+            }
+            setSyncStatus('synced');
+            return true;
+        } catch (err) {
+            setSyncStatus('error');
+            console.error('[C1 Tracker] GitHub load error:', err);
+            return false;
+        }
+    }
+
+    // Update the modal UI to reflect connected/disconnected state.
+    function refreshGithubModalUI() {
+        const token  = ghToken();
+        const gistId = ghGistId();
+        const connected = !!(token && gistId);
+
+        const info     = document.getElementById('gh-connected-info');
+        const form     = document.getElementById('gh-setup-form');
+        const linkEl   = document.getElementById('gh-gist-link');
+        const btnConn  = document.getElementById('btn-gh-connect');
+        const btnPull  = document.getElementById('btn-gh-pull');
+        const btnDisc  = document.getElementById('btn-gh-disconnect');
+
+        if (connected) {
+            info.style.display   = 'flex';
+            form.style.display   = 'none';
+            btnConn.style.display = 'none';
+            btnPull.style.display = 'inline-flex';
+            btnDisc.style.display = 'inline-flex';
+            linkEl.href = `https://gist.github.com/${gistId}`;
+        } else {
+            info.style.display   = 'none';
+            form.style.display   = 'block';
+            btnConn.style.display = 'inline-flex';
+            btnPull.style.display = 'none';
+            btnDisc.style.display = 'none';
+        }
+    }
+
+    function showGhModalStatus(msg, type /* 'ok'|'error'|'info' */) {
+        const el = document.getElementById('gh-modal-status');
+        el.textContent = msg;
+        el.className   = `gh-modal-status status-${type}`;
+        el.style.display = 'block';
+    }
+
     // ── Cloud backup: export / import ────────────────────────
     function exportBackup() {
         const data = {
@@ -838,14 +991,117 @@
                 document.getElementById('reminder-modal').style.display = 'none';
             }, 1500);
         });
+
+        // GitHub Sync modal
+        const ghModal = document.getElementById('github-modal');
+
+        function openGithubModal() {
+            refreshGithubModalUI();
+            // Pre-fill token field if already stored
+            const stored = ghToken();
+            const tokenInput = document.getElementById('gh-token');
+            if (stored) tokenInput.value = stored;
+            const statusEl = document.getElementById('gh-modal-status');
+            statusEl.style.display = 'none';
+            ghModal.style.display = 'flex';
+        }
+
+        function closeGithubModal() {
+            ghModal.style.display = 'none';
+        }
+
+        document.getElementById('btn-github-sync').addEventListener('click', openGithubModal);
+        document.getElementById('btn-close-github').addEventListener('click', closeGithubModal);
+        document.getElementById('btn-close-github-x').addEventListener('click', closeGithubModal);
+        ghModal.addEventListener('click', (e) => {
+            if (e.target === ghModal) closeGithubModal();
+        });
+
+        // Show/hide PAT
+        document.getElementById('btn-toggle-token').addEventListener('click', () => {
+            const inp = document.getElementById('gh-token');
+            inp.type = inp.type === 'password' ? 'text' : 'password';
+        });
+
+        // Connect & Sync
+        document.getElementById('btn-gh-connect').addEventListener('click', async () => {
+            const token = document.getElementById('gh-token').value.trim();
+            if (!token) { showGhModalStatus('❗ Please enter your Personal Access Token.', 'error'); return; }
+
+            showGhModalStatus('🔄 Connecting to GitHub…', 'info');
+            document.getElementById('btn-gh-connect').disabled = true;
+            try {
+                const gistId = await findOrCreateGist(token);
+                localStorage.setItem(LS_GH_TOKEN, token);
+                localStorage.setItem(LS_GH_GIST_ID, gistId);
+
+                // Initial pull so existing Gist data is not lost
+                const loaded = await loadFromGist();
+                if (loaded) renderAll();
+
+                // Push current local data
+                await syncToGist();
+
+                showGhModalStatus('✅ Connected! Your progress is now syncing to GitHub.', 'ok');
+                refreshGithubModalUI();
+                showToast('✅ GitHub Sync connected!');
+            } catch (err) {
+                showGhModalStatus(`❌ ${err.message}`, 'error');
+                console.error('[C1 Tracker] Connect error:', err);
+            } finally {
+                document.getElementById('btn-gh-connect').disabled = false;
+            }
+        });
+
+        // Pull from GitHub
+        document.getElementById('btn-gh-pull').addEventListener('click', async () => {
+            showGhModalStatus('⬇ Pulling latest data from GitHub…', 'info');
+            document.getElementById('btn-gh-pull').disabled = true;
+            try {
+                const loaded = await loadFromGist();
+                if (loaded) {
+                    renderAll();
+                    showGhModalStatus('✅ Data pulled and updated!', 'ok');
+                    showToast('⬇ Progress pulled from GitHub!');
+                } else {
+                    showGhModalStatus('⚠ No data found in Gist.', 'error');
+                }
+            } catch (err) {
+                showGhModalStatus(`❌ ${err.message}`, 'error');
+            } finally {
+                document.getElementById('btn-gh-pull').disabled = false;
+            }
+        });
+
+        // Disconnect
+        document.getElementById('btn-gh-disconnect').addEventListener('click', () => {
+            if (!confirm('Disconnect GitHub Sync? Your local data will not be deleted.')) return;
+            localStorage.removeItem(LS_GH_TOKEN);
+            localStorage.removeItem(LS_GH_GIST_ID);
+            setSyncStatus('none');
+            refreshGithubModalUI();
+            showGhModalStatus('Disconnected from GitHub Sync.', 'info');
+            showToast('Disconnected from GitHub Sync.');
+        });
     }
 
     // ── Bootstrap ────────────────────────────────────────────
-    function init() {
+    async function init() {
         detectTimezone();
         initEventListeners();
         renderAll();
         applyReminderSettings();
+
+        // If GitHub sync is configured, pull latest data on startup
+        if (ghToken() && ghGistId()) {
+            try {
+                const pulled = await loadFromGist();
+                if (pulled) renderAll(); // re-render with potentially updated data
+            } catch (e) {
+                // Non-fatal: local data is still usable
+                console.warn('[C1 Tracker] Startup Gist pull failed:', e);
+            }
+        }
     }
 
     if (document.readyState === 'loading') {

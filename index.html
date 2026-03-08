@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>C1 English Tracker – Advanced Progress Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -18,6 +21,11 @@
                 </div>
             </div>
             <div class="header-actions">
+                <span id="sync-status" class="sync-status sync-none" title="GitHub Sync status"></span>
+                <button id="btn-github-sync" class="btn btn-github" title="Sync with GitHub">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                    GitHub Sync
+                </button>
                 <button id="btn-reminder" class="btn btn-outline" title="Set smart reminder">🔔 Reminders</button>
                 <button id="btn-backup-export" class="btn btn-outline" title="Export backup">☁ Export</button>
                 <button id="btn-backup-import" class="btn btn-outline" title="Import backup">📥 Import</button>
@@ -230,15 +238,59 @@
     <!-- ===== TOAST ===== -->
     <div id="toast" class="toast" style="display:none"></div>
 
+    <!-- ===== GITHUB SYNC MODAL ===== -->
+    <div id="github-modal" class="modal" style="display:none">
+        <div class="modal-box modal-box--github">
+            <div class="modal-header-row">
+                <h3>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:middle;margin-right:8px"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                    GitHub Sync
+                </h3>
+                <button class="modal-close-x" id="btn-close-github-x" title="Close">✕</button>
+            </div>
+            <p class="modal-desc">Connect your GitHub account to save progress in a <strong>private Gist</strong>. Your streak and sessions will be available on any device.</p>
+
+            <div id="gh-connected-info" style="display:none" class="gh-connected-info">
+                <div class="gh-connected-row">
+                    <span class="gh-connected-dot"></span>
+                    <span id="gh-connected-label">Connected – syncing to Gist</span>
+                </div>
+                <a id="gh-gist-link" href="#" target="_blank" rel="noopener" class="gh-gist-url">View Gist ↗</a>
+            </div>
+
+            <div id="gh-setup-form">
+                <div class="form-group">
+                    <label for="gh-token">Personal Access Token (PAT)</label>
+                    <div class="input-with-toggle">
+                        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+                        <button type="button" class="toggle-visibility" id="btn-toggle-token" title="Show/hide token">👁</button>
+                    </div>
+                    <small class="form-hint">
+                        Create a PAT with <strong>gist</strong> scope only at
+                        <a href="https://github.com/settings/tokens/new?scopes=gist&description=C1+English+Tracker" target="_blank" rel="noopener">github.com/settings/tokens</a>
+                    </small>
+                </div>
+            </div>
+
+            <div id="gh-modal-status" class="gh-modal-status" style="display:none"></div>
+
+            <div class="modal-actions">
+                <button id="btn-gh-connect" class="btn btn-github">Connect &amp; Sync</button>
+                <button id="btn-gh-pull" class="btn btn-secondary" style="display:none" title="Pull latest data from GitHub">⬇ Pull from GitHub</button>
+                <button id="btn-gh-disconnect" class="btn btn-danger btn-sm" style="display:none">Disconnect</button>
+                <button id="btn-close-github" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== FOOTER: DATA STORAGE INFO ===== -->
     <footer class="storage-footer">
         <div class="storage-footer-inner">
             <span class="storage-icon">💾</span>
             <div class="storage-text">
                 <strong>Where is your data saved?</strong>
-                Your study sessions and settings are stored in your <strong>browser's localStorage</strong> — on this device only.
-                Data is <em>not</em> sent to any server. Clearing your browser's site data will erase it.
-                Use <strong>☁ Export</strong> to back up your progress as a JSON file, and <strong>📥 Import</strong> to restore it on any device.
+                Sessions are saved in your <strong>browser's localStorage</strong> and optionally synced to a <strong>private GitHub Gist</strong> for cross-device access.
+                Use <strong>GitHub Sync</strong> to keep your streak alive everywhere, <strong>☁ Export</strong> to download a JSON backup, or <strong>📥 Import</strong> to restore data.
             </div>
         </div>
     </footer>
