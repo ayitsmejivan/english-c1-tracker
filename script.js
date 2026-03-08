@@ -13,11 +13,24 @@
     const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
     const LS_VOCABULARY  = 'c1t_vocabulary';
     const LS_UPDATED_AT  = 'c1t_updated_at';
-    const GIST_FILENAME  = 'c1-english-tracker-data.json';
+    const LS_USER_NAME   = 'c1t_user_name';
+    const LS_ACCENT      = 'c1t_accent';
+    const LS_LAST_BADGE_COUNT       = 'c1t_last_badge_count';
+    const LS_LAST_VOCAB_MILESTONE   = 'c1t_last_vocab_milestone';
+    const GIST_FILENAME             = 'c1-english-tracker-data.json';
+
+    // ── Configurable constants ───────────────────────────────
+    const DEFAULT_ACCENT              = 'purple';
+    const WORD_ROTATION_INTERVAL_MS   = 10000;   // rotate word every 10 seconds
+    const CONFETTI_STAGGER_MS         = 500;      // max stagger delay for confetti particles
+    const SESSION_SHORT_THRESHOLD     = 10;       // ≤10 min → "every minute counts" toast
+    const SESSION_LONG_THRESHOLD      = 45;       // ≥45 min → "champion" toast
+    const TOPIC_COMPLETION_THRESHOLD  = 60;       // minutes to mark a topic as done
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
     let reminderTimeoutId = null;
     let weeklySummaryTimeoutId = null;
+    let rotatingWordInterval = null;
 
     // ── Duration helper ──────────────────────────────────────
     function formatDuration(mins) {
@@ -126,12 +139,255 @@
 
     // ── Toast ────────────────────────────────────────────────
     let toastTimeout;
-    function showToast(msg, duration = 3000) {
+    function showToast(msg, duration = 3500, type = '') {
         const el = document.getElementById('toast');
         el.textContent = msg;
+        el.className = 'toast' + (type ? ' toast-' + type : '');
         el.style.display = 'block';
+        el.style.opacity = '1';
         clearTimeout(toastTimeout);
-        toastTimeout = setTimeout(() => { el.style.display = 'none'; }, duration);
+        toastTimeout = setTimeout(() => {
+            el.style.opacity = '0';
+            setTimeout(() => { el.style.display = 'none'; el.style.opacity = '1'; }, 300);
+        }, duration);
+    }
+
+    // ── Time-based greeting ───────────────────────────────────
+    function getTimeGreeting() {
+        const hour = new Date().getHours();
+        const name = localStorage.getItem(LS_USER_NAME) || '';
+        const namePart = name ? `, ${name}` : '';
+        if (hour >= 5  && hour < 12) return `🌅 Morning focus${namePart}! Ready to level up?`;
+        if (hour >= 12 && hour < 18) return `☀️ Afternoon session${namePart} — you've got this!`;
+        if (hour >= 18 && hour < 22) return `🌆 Evening study${namePart} — dedication pays off!`;
+        return `🌙 Night owl${namePart} — C1 awaits!`;
+    }
+
+    function updateGreeting(streakCurrent) {
+        const el = document.getElementById('time-greeting');
+        if (!el) return;
+        let html = `<span>${getTimeGreeting()}</span>`;
+        // Streak approaching milestone hint - derive from STREAK_MILESTONES
+        for (const m of Object.keys(STREAK_MILESTONES).map(Number).sort((a, b) => a - b)) {
+            if (streakCurrent === m - 1) {
+                html += `<span class="greeting-streak-hint">🔥 One more day for a ${m}-day streak!</span>`;
+                break;
+            }
+        }
+        el.innerHTML = html;
+    }
+
+    // ── Confetti ─────────────────────────────────────────────
+    function triggerConfetti(count = 60) {
+        const container = document.getElementById('confetti-container');
+        if (!container) return;
+        const colors = ['#7c6eff','#00e5b8','#ff4d6d','#ffcc47','#38bdf8','#a78bfa','#ff8c42'];
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+
+        for (let i = 0; i < count; i++) {
+            const p = document.createElement('div');
+            p.className = 'confetti-particle';
+            const size = 5 + Math.random() * 8;
+            const isCircle = Math.random() > 0.5;
+            p.style.cssText = [
+                `width:${size}px`,
+                `height:${size}px`,
+                `background:${colors[Math.floor(Math.random() * colors.length)]}`,
+                `border-radius:${isCircle ? '50%' : '2px'}`,
+                `left:${20 + Math.random() * 60}%`,
+                `top:0`,
+                `position:absolute`,
+            ].join(';');
+            container.appendChild(p);
+
+            const startX = (0.2 + Math.random() * 0.6) * W;
+            let posX   = startX;
+            let posY   = -10;
+            let velX   = (Math.random() - 0.5) * 6;
+            let velY   = -(5 + Math.random() * 8);
+            let alpha  = 1;
+            let rot    = Math.random() * 360;
+            let rotV   = (Math.random() - 0.5) * 12;
+            let frame  = 0;
+
+            function animate() {
+                frame++;
+                velY += 0.25;
+                velX *= 0.99;
+                posX  += velX;
+                posY  += velY;
+                rot   += rotV;
+                alpha -= 0.012;
+                if (alpha <= 0 || posY > H + 20 || frame > 200) { p.remove(); return; }
+                p.style.transform = `translate(${posX - startX}px, ${posY}px) rotate(${rot}deg)`;
+                p.style.opacity   = alpha;
+                requestAnimationFrame(animate);
+            }
+            setTimeout(() => requestAnimationFrame(animate), Math.random() * CONFETTI_STAGGER_MS);
+        }
+    }
+
+    // ── Milestone celebration ─────────────────────────────────
+    const STREAK_MILESTONES = {
+        7:  { icon: '🎊', title: 'Week Warrior!',    desc: '7 consecutive days of studying — incredible consistency!' },
+        14: { icon: '🏆', title: 'Two-Week Master!', desc: '14 days straight! You\'re building a real C1 habit.' },
+        30: { icon: '🎇', title: 'Monthly Legend!',  desc: '30 days — a whole month of dedicated study! Extraordinary!' },
+        60: { icon: '🌟', title: '2 Months Strong!', desc: '60 days without stopping. You are an absolute champion!' },
+        90: { icon: '🏅', title: 'C1 Warrior!',      desc: '90 days! This level of commitment will get you to C1. Epic!' },
+    };
+
+    function showMilestoneCelebration(streak) {
+        const def = STREAK_MILESTONES[streak];
+        if (!def) return;
+        const overlay = document.getElementById('milestone-overlay');
+        if (!overlay) return;
+        document.getElementById('milestone-icon').textContent  = def.icon;
+        document.getElementById('milestone-title').textContent = def.title;
+        document.getElementById('milestone-desc').textContent  = def.desc;
+        overlay.style.display = 'flex';
+        triggerConfetti(120);
+    }
+
+    // ── Count-up animation ────────────────────────────────────
+    function animateCountUp(el, targetStr, duration = 900) {
+        if (!el) return;
+        const target = parseFloat(targetStr);
+        if (isNaN(target) || target === 0) { el.textContent = targetStr; return; }
+        const isFloat  = targetStr.includes('.');
+        const decimals = isFloat ? (targetStr.split('.')[1] || '').length : 0;
+        const start = performance.now();
+        el.classList.add('counting');
+
+        function step(now) {
+            const elapsed  = now - start;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased    = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+            const current  = target * eased;
+            el.textContent = isFloat ? current.toFixed(decimals) : Math.floor(current).toString();
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            } else {
+                el.textContent = targetStr;
+                el.classList.remove('counting');
+            }
+        }
+        requestAnimationFrame(step);
+    }
+
+    // ── Ripple effect on buttons ─────────────────────────────
+    function addRipple(btn, e) {
+        const rect   = btn.getBoundingClientRect();
+        const size   = Math.max(rect.width, rect.height);
+        const x      = (e.clientX - rect.left) - size / 2;
+        const y      = (e.clientY - rect.top)  - size / 2;
+        const ripple = document.createElement('span');
+        ripple.className  = 'btn-ripple';
+        ripple.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
+        btn.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove());
+    }
+
+    // ── Random word widget ────────────────────────────────────
+    let rotatingWordIndex = 0;
+
+    function renderRandomWord() {
+        const section = document.getElementById('word-of-moment');
+        if (!section) return;
+        const vocab = loadVocabulary();
+        if (!vocab.length) { section.style.display = 'none'; return; }
+        section.style.display = '';
+
+        const content = document.getElementById('rotating-word-content');
+        if (!content) return;
+
+        function showWord(idx) {
+            const w = vocab[idx % vocab.length];
+            const html = `
+                <div class="rotating-word-text">${escapeHtml(w.word)}</div>
+                <div class="rotating-word-category">${escapeHtml(w.category || '')} · ${w.difficulty || 'C1'}</div>
+                <div class="rotating-word-def">${escapeHtml(w.definition || '')}</div>
+            `;
+            content.classList.remove('fade-in');
+            content.classList.add('fade-out');
+            setTimeout(() => {
+                content.innerHTML = html;
+                content.classList.remove('fade-out');
+                content.classList.add('fade-in');
+            }, 500);
+        }
+
+        showWord(rotatingWordIndex);
+
+        clearInterval(rotatingWordInterval);
+        rotatingWordInterval = setInterval(() => {
+            rotatingWordIndex = (rotatingWordIndex + 1) % vocab.length;
+            showWord(rotatingWordIndex);
+        }, WORD_ROTATION_INTERVAL_MS);
+    }
+
+    // ── Accent colour picker ─────────────────────────────────
+    function applyAccent(accent) {
+        document.body.classList.remove('accent-blue', 'accent-green', 'accent-orange');
+        if (accent && accent !== DEFAULT_ACCENT) {
+            document.body.classList.add('accent-' + accent);
+        }
+        // Update active dot
+        document.querySelectorAll('.accent-dot').forEach(dot => {
+            dot.classList.toggle('active', dot.dataset.accent === accent);
+        });
+        localStorage.setItem(LS_ACCENT, accent);
+    }
+
+    function initAccentColors() {
+        const saved = localStorage.getItem(LS_ACCENT) || DEFAULT_ACCENT;
+        applyAccent(saved);
+        document.getElementById('accent-picker')?.addEventListener('click', (e) => {
+            const dot = e.target.closest('.accent-dot');
+            if (dot) applyAccent(dot.dataset.accent);
+        });
+    }
+
+    // ── Name personalisation ─────────────────────────────────
+    function updateNameDisplay() {
+        const name = localStorage.getItem(LS_USER_NAME) || '';
+        const el   = document.getElementById('user-name-display');
+        if (el) el.textContent = name ? `👤 ${name}` : '👤 Set name';
+    }
+
+    function initNamePersonalization() {
+        updateNameDisplay();
+
+        const btnEdit   = document.getElementById('btn-edit-name');
+        const editRow   = document.getElementById('name-edit-row');
+        const nameInput = document.getElementById('name-input');
+        const btnSave   = document.getElementById('btn-save-name');
+        const btnCancel = document.getElementById('btn-cancel-name');
+
+        if (!btnEdit) return;
+
+        btnEdit.addEventListener('click', () => {
+            nameInput.value = localStorage.getItem(LS_USER_NAME) || '';
+            editRow.style.display = '';
+            nameInput.focus();
+        });
+
+        function saveName() {
+            const v = nameInput.value.trim();
+            if (v) localStorage.setItem(LS_USER_NAME, v);
+            else   localStorage.removeItem(LS_USER_NAME);
+            editRow.style.display = 'none';
+            updateNameDisplay();
+            updateGreeting(calcStreaks(loadSessions()).current);
+            showToast(v ? `👋 Hello, ${v}!` : 'Name cleared.', 2500, 'success');
+        }
+
+        btnSave.addEventListener('click', saveName);
+        btnCancel.addEventListener('click', () => { editRow.style.display = 'none'; });
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') saveName();
+            if (e.key === 'Escape') { editRow.style.display = 'none'; }
+        });
     }
 
     // ── Date helpers ─────────────────────────────────────────
@@ -335,19 +591,23 @@
     // ── Stats ────────────────────────────────────────────────
     function updateStats(sessions) {
         const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
-        document.getElementById('stat-total-hours').textContent = (totalMins / 60).toFixed(1);
-        document.getElementById('stat-sessions').textContent = sessions.length;
+        animateCountUp(document.getElementById('stat-total-hours'), (totalMins / 60).toFixed(1));
+        animateCountUp(document.getElementById('stat-sessions'), sessions.length.toString());
 
         const { current, best } = calcStreaks(sessions);
-        document.getElementById('stat-best-streak').textContent = best;
-        document.getElementById('current-streak').textContent = current;
+        animateCountUp(document.getElementById('stat-best-streak'), best.toString());
+        animateCountUp(document.getElementById('current-streak'), current.toString());
+
+        // Streak flame animation
+        const flame = document.getElementById('streak-flame');
+        if (flame) flame.classList.toggle('streak-zero', current === 0);
 
         // This week
         const weekStart = getWeekLabel(todayStr());
         const weekMins = sessions
             .filter(s => getWeekLabel(s.date) === weekStart)
             .reduce((s, x) => s + (x.duration || 0), 0);
-        document.getElementById('stat-this-week').textContent = (weekMins / 60).toFixed(1);
+        animateCountUp(document.getElementById('stat-this-week'), (weekMins / 60).toFixed(1));
     }
 
     // ── Badges ───────────────────────────────────────────────
@@ -436,18 +696,59 @@
     function renderBadges(sessions) {
         const grid = document.getElementById('badges-grid');
         grid.innerHTML = '';
+
+        // Badge progress hints for session-count and hour-count badges
+        const totalMins   = sessions.reduce((a, x) => a + x.duration, 0);
+        const totalHours  = totalMins / 60;
+        const { best: bestStreak } = calcStreaks(sessions);
+
+        function getProgress(def) {
+            switch (def.id) {
+                case 'first_session': return { done: sessions.length, goal: 1 };
+                case 'streak_3':     return { done: bestStreak, goal: 3 };
+                case 'streak_7':     return { done: bestStreak, goal: 7 };
+                case 'streak_30':    return { done: bestStreak, goal: 30 };
+                case 'one_hour':     return { done: sessions.filter(x => x.duration >= 60).length, goal: 1 };
+                case 'ten_hours':    return { done: Math.floor(totalHours), goal: 10 };
+                case 'fifty_hours':  return { done: Math.floor(totalHours), goal: 50 };
+                default:             return null;
+            }
+        }
+
+        const prevCount = parseInt(localStorage.getItem(LS_LAST_BADGE_COUNT) || '0', 10);
+
         for (const def of BADGE_DEFS) {
             const earned = def.check(sessions);
             const el = document.createElement('div');
             el.className = 'badge' + (earned ? ' earned' : ' locked');
+
+            let extraHtml = '';
+            if (!earned) {
+                const prog = getProgress(def);
+                if (prog && prog.goal > 0) {
+                    const pct = Math.min(100, (prog.done / prog.goal) * 100);
+                    const remaining = prog.goal - prog.done;
+                    extraHtml = `
+                        <span class="badge-progress">${remaining} more to go</span>
+                        <div class="badge-progress-bar">
+                            <div class="badge-progress-fill" style="width:${pct}%"></div>
+                        </div>`;
+                }
+            }
+
             el.innerHTML = `
                 <span class="badge-icon">${def.icon}</span>
                 <span class="badge-name">${def.name}</span>
                 <span class="badge-desc">${def.desc}</span>
+                ${extraHtml}
             `;
             grid.appendChild(el);
             if (earned) el.title = 'Earned! ' + def.desc;
         }
+
+        // Store new count for next comparison
+        const newCount = BADGE_DEFS.filter(b => b.check(sessions)).length;
+        localStorage.setItem(LS_LAST_BADGE_COUNT, newCount);
     }
 
     // ── Course map progress ───────────────────────────────────
@@ -471,9 +772,10 @@
 
         for (const t of TOPICS) {
             const mins = topicMins[t];
-            const pct = Math.min(100, (mins / Math.max(maxMins, 120)) * 100);
+            const pct  = Math.min(100, (mins / Math.max(maxMins, 120)) * 100);
+            const done = mins >= TOPIC_COMPLETION_THRESHOLD; // topic is "done" if at least 60 min studied
             list.innerHTML += `
-                <div class="course-item">
+                <div class="course-item${done ? ' course-item-done' : ''}">
                     <span class="course-item-label">${t}</span>
                     <div class="course-bar-wrap">
                         <div class="course-bar-fill" style="width:${pct}%"></div>
@@ -979,6 +1281,7 @@
         const sessions = loadSessions();
         const vocab    = loadVocabulary();
         updateStats(sessions);
+        updateGreeting(calcStreaks(sessions).current);
         updateLevelUI(sessions);
         renderStreakCalendar(sessions);
         renderTodChart(sessions);
@@ -990,12 +1293,16 @@
         renderSmartPlan(sessions, vocab);
         renderVocabHub(vocab);
         renderReviewQueue(vocab);
+        renderRandomWord();
     }
 
     // ── Log session ──────────────────────────────────────────
     function logSession(data) {
-        const sessions = loadSessions();
-        sessions.push({
+        const prevSessions = loadSessions();
+        const prevStreak   = calcStreaks(prevSessions).current;
+        const prevBadgeCount = BADGE_DEFS.filter(b => b.check(prevSessions)).length;
+
+        prevSessions.push({
             id:       Date.now() + Math.random(),
             date:     data.date,
             time:     data.time,
@@ -1004,18 +1311,64 @@
             duration: data.duration,
             notes:    data.notes,
         });
-        saveSessions(sessions);
+        saveSessions(prevSessions);
+        const sessions = loadSessions(); // reload after save
 
-        // check new badges
-        const prevBadgeCount = BADGE_DEFS.filter(b => b.check(sessions.slice(0, -1))).length;
-        const newBadgeCount  = BADGE_DEFS.filter(b => b.check(sessions)).length;
+        // Check for new badges
+        const newBadgeCount = BADGE_DEFS.filter(b => b.check(sessions)).length;
         if (newBadgeCount > prevBadgeCount) {
             const newBadge = BADGE_DEFS.find(b => b.check(sessions) && !b.check(sessions.slice(0, -1)));
-            if (newBadge) showToast(`🏅 New achievement: ${newBadge.name}!`, 5000);
+            if (newBadge) {
+                setTimeout(() => {
+                    showToast(`🏅 New achievement unlocked: "${newBadge.name}"!`, 5000, 'milestone');
+                    // Animate the badge element
+                    const badgeEls = document.querySelectorAll('.badge.earned');
+                    if (badgeEls.length > 0) {
+                        const lastEarned = Array.from(badgeEls).find(
+                            el => el.querySelector('.badge-name')?.textContent === newBadge.name
+                        );
+                        if (lastEarned) lastEarned.classList.add('newly-earned');
+                    }
+                    triggerConfetti(60);
+                }, 400);
+            }
+        }
+
+        // Check for streak milestones
+        const newStreak = calcStreaks(sessions).current;
+        if (STREAK_MILESTONES[newStreak] && newStreak > prevStreak) {
+            setTimeout(() => showMilestoneCelebration(newStreak), 600);
+        }
+
+        // Check vocabulary milestone (every 10 words)
+        const vocab = loadVocabulary();
+        const vocabCount = vocab.length;
+        const lastMilestone = parseInt(localStorage.getItem(LS_LAST_VOCAB_MILESTONE) || '0', 10);
+        const nextMilestone = Math.floor(vocabCount / 10) * 10;
+        if (nextMilestone > 0 && nextMilestone > lastMilestone && vocabCount >= nextMilestone) {
+            localStorage.setItem(LS_LAST_VOCAB_MILESTONE, nextMilestone);
+            setTimeout(() => {
+                showToast(`📖 Word Collector! You've got ${nextMilestone}+ words in your vocabulary hub! 🎉`, 5000, 'milestone');
+            }, 1200);
         }
 
         renderAll();
-        showToast('✅ Session logged!');
+
+        // Contextual toast message
+        const dur = data.duration;
+        const isNewStreak = newStreak > 0 && newStreak > prevStreak && data.date === todayStr();
+        let toastMsg;
+        if (dur >= SESSION_LONG_THRESHOLD) {
+            toastMsg = `🏆 Champion! That's a solid ${dur}-minute session!`;
+        } else if (dur <= SESSION_SHORT_THRESHOLD) {
+            toastMsg = `✅ Perfect! Every minute counts — +${dur} min toward C1!`;
+        } else {
+            toastMsg = `🎯 Great job! +${dur} min toward C1!`;
+        }
+        if (isNewStreak && newStreak > 1) {
+            toastMsg = `🔥 New streak! ${newStreak} days strong!`;
+        }
+        showToast(toastMsg, 3500, 'success');
     }
 
     // ── Live timer ───────────────────────────────────────────
@@ -1430,8 +1783,10 @@
         const now = new Date();
         timeInput.value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-        // Log session
-        document.getElementById('btn-log-session').addEventListener('click', () => {
+        // Log session – with ripple effect
+        const btnLog = document.getElementById('btn-log-session');
+        btnLog.addEventListener('click', (e) => {
+            addRipple(btnLog, e);
             const topic    = document.getElementById('topic-select').value;
             const skill    = document.getElementById('skill-select').value;
             const duration = parseInt(document.getElementById('session-duration').value, 10);
@@ -1440,7 +1795,7 @@
             const notes    = document.getElementById('session-notes').value.trim();
 
             if (!topic || !duration || duration < 1 || !date) {
-                showToast('❗ Please fill in topic, duration and date.'); return;
+                showToast('❗ Please fill in topic, duration and date.', 3000, 'error'); return;
             }
             logSession({ topic, skill, duration, date, time, notes });
 
@@ -1485,6 +1840,17 @@
             if (file) importBackup(file);
             e.target.value = '';
         });
+
+        // Milestone overlay close
+        const milestoneOverlay = document.getElementById('milestone-overlay');
+        if (milestoneOverlay) {
+            document.getElementById('btn-close-milestone')?.addEventListener('click', () => {
+                milestoneOverlay.style.display = 'none';
+            });
+            milestoneOverlay.addEventListener('click', (e) => {
+                if (e.target === milestoneOverlay) milestoneOverlay.style.display = 'none';
+            });
+        }
 
         // Reminder modal
         document.getElementById('btn-reminder').addEventListener('click', () => {
@@ -1763,12 +2129,26 @@
         renderVocabHub(v2);
         renderReviewQueue(v2);
         renderSmartPlan(loadSessions(), v2);
-        showToast(editId ? '✅ Word updated!' : `✅ "${wordText}" added to vocabulary!`);
+        renderRandomWord();
+
+        // Vocabulary milestone check
+        const vocabCount = v2.length;
+        const lastMilestone = parseInt(localStorage.getItem(LS_LAST_VOCAB_MILESTONE) || '0', 10);
+        const nextMilestone = Math.floor(vocabCount / 10) * 10;
+        if (nextMilestone > 0 && nextMilestone > lastMilestone && vocabCount >= nextMilestone) {
+            localStorage.setItem(LS_LAST_VOCAB_MILESTONE, nextMilestone);
+            showToast(`📖 Word Collector! ${nextMilestone} words in your hub! 🎉`, 5000, 'milestone');
+            triggerConfetti(50);
+        }
+
+        showToast(editId ? '✅ Word updated!' : `✅ "${escapeHtml(wordText)}" added to vocabulary!`, 3000, 'success');
     }
 
 
     async function init() {
         detectTimezone();
+        initAccentColors();
+        initNamePersonalization();
         initEventListeners();
         renderAll();
         applyReminderSettings();
