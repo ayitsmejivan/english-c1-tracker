@@ -1,0 +1,835 @@
+/* =====================================================
+   C1 English Tracker – Main Script
+   ===================================================== */
+
+(function () {
+    'use strict';
+
+    // ── Storage helpers ──────────────────────────────────────
+    const LS_SESSIONS  = 'c1t_sessions';
+    const LS_REMINDER  = 'c1t_reminder';
+    const LS_TIMER_START = 'c1t_timer_start';
+
+    // ── Module-scoped timeout IDs (avoid polluting window) ───
+    let reminderTimeoutId = null;
+    let weeklySummaryTimeoutId = null;
+
+    // ── Duration helper ──────────────────────────────────────
+    function formatDuration(mins) {
+        const m = Math.floor(mins);
+        return `${Math.floor(m / 60)}h ${m % 60}m`;
+    }
+
+    function loadSessions() {
+        try { return JSON.parse(localStorage.getItem(LS_SESSIONS)) || []; }
+        catch { return []; }
+    }
+
+    function saveSessions(sessions) {
+        localStorage.setItem(LS_SESSIONS, JSON.stringify(sessions));
+    }
+
+    function loadReminder() {
+        try { return JSON.parse(localStorage.getItem(LS_REMINDER)) || {}; }
+        catch { return {}; }
+    }
+
+    function saveReminder(cfg) {
+        localStorage.setItem(LS_REMINDER, JSON.stringify(cfg));
+    }
+
+    // ── Timezone detection ───────────────────────────────────
+    function detectTimezone() {
+        try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            document.getElementById('timezone-display').textContent = '🌐 ' + tz;
+            return tz;
+        } catch {
+            document.getElementById('timezone-display').textContent = '🌐 Timezone unknown';
+            return 'UTC';
+        }
+    }
+
+    // ── Toast ────────────────────────────────────────────────
+    let toastTimeout;
+    function showToast(msg, duration = 3000) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.style.display = 'block';
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => { el.style.display = 'none'; }, duration);
+    }
+
+    // ── Date helpers ─────────────────────────────────────────
+    function todayStr() {
+        return new Date().toISOString().slice(0, 10);
+    }
+
+    function formatDate(str) {
+        const d = new Date(str + 'T00:00:00');
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function getWeekLabel(dateStr) {
+        const d = new Date(dateStr + 'T00:00:00');
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const mon = new Date(d.setDate(diff));
+        return mon.toISOString().slice(0, 10);
+    }
+
+    function weekRangeLabel(weekStart) {
+        const s = new Date(weekStart + 'T00:00:00');
+        const e = new Date(s); e.setDate(e.getDate() + 6);
+        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        return fmt(s) + ' – ' + fmt(e);
+    }
+
+    // ── Level system ─────────────────────────────────────────
+    const LEVELS = [
+        { label: 'Beginner',     icon: '🌱', minHrs: 0,   nextHrs: 10  },
+        { label: 'Elementary',   icon: '📖', minHrs: 10,  nextHrs: 25  },
+        { label: 'Pre-Intermediate', icon: '✏️', minHrs: 25, nextHrs: 50 },
+        { label: 'Intermediate', icon: '🧠', minHrs: 50,  nextHrs: 100 },
+        { label: 'Upper-Intermediate', icon: '🚀', minHrs: 100, nextHrs: 175 },
+        { label: 'Advanced',     icon: '⭐', minHrs: 175, nextHrs: 300 },
+        { label: 'C1 Master',    icon: '🏆', minHrs: 300, nextHrs: null },
+    ];
+
+    function getLevel(totalHrs) {
+        let lv = LEVELS[0];
+        for (const l of LEVELS) {
+            if (totalHrs >= l.minHrs) lv = l;
+        }
+        return lv;
+    }
+
+    function updateLevelUI(sessions) {
+        const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
+        const totalHrs = totalMins / 60;
+        const lv = getLevel(totalHrs);
+        document.getElementById('level-label').textContent = lv.label;
+        document.getElementById('level-icon').textContent  = lv.icon;
+        if (lv.nextHrs) {
+            const pct = Math.min(100, ((totalHrs - lv.minHrs) / (lv.nextHrs - lv.minHrs)) * 100);
+            document.getElementById('level-progress-fill').style.width = pct + '%';
+            const remaining = Math.max(0, lv.nextHrs - totalHrs).toFixed(1);
+            document.getElementById('level-progress-text').textContent =
+                `${(totalHrs - lv.minHrs).toFixed(1)} / ${(lv.nextHrs - lv.minHrs).toFixed(1)} hrs to next level`;
+        } else {
+            document.getElementById('level-progress-fill').style.width = '100%';
+            document.getElementById('level-progress-text').textContent = '🎉 Max level reached!';
+        }
+    }
+
+    // ── Streak calculation ───────────────────────────────────
+    function calcStreaks(sessions) {
+        const daySet = new Set(sessions.map(s => s.date));
+        const days = Array.from(daySet).sort();
+        if (!days.length) return { current: 0, best: 0 };
+
+        let best = 1, cur = 1;
+        for (let i = 1; i < days.length; i++) {
+            const prev = new Date(days[i - 1] + 'T00:00:00');
+            const curr = new Date(days[i]     + 'T00:00:00');
+            const diff = (curr - prev) / 86400000;
+            if (diff === 1) { cur++; best = Math.max(best, cur); }
+            else cur = 1;
+        }
+
+        // check if streak includes today
+        const today = todayStr();
+        const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().slice(0, 10);
+        const lastDay = days[days.length - 1];
+        let current = 0;
+        if (lastDay === today || lastDay === yesterdayStr) {
+            current = 1;
+            for (let i = days.length - 2; i >= 0; i--) {
+                const a = new Date(days[i + 1] + 'T00:00:00');
+                const b = new Date(days[i]     + 'T00:00:00');
+                if ((a - b) / 86400000 === 1) current++;
+                else break;
+            }
+        }
+        return { current, best: Math.max(best, current) };
+    }
+
+    // ── Streak calendar render ───────────────────────────────
+    function renderStreakCalendar(sessions) {
+        // Build a map: date → total minutes
+        const dayMap = {};
+        for (const s of sessions) {
+            dayMap[s.date] = (dayMap[s.date] || 0) + (s.duration || 0);
+        }
+
+        const container = document.getElementById('streak-calendar');
+        container.innerHTML = '';
+
+        const today = new Date();
+        const start = new Date(today);
+        start.setDate(start.getDate() - 181); // ~6 months
+
+        for (let d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().slice(0, 10);
+            const mins = dayMap[dateStr] || 0;
+            let lv = 'lv0';
+            if (mins > 0   && mins < 30) lv = 'lv1';
+            else if (mins >= 30 && mins < 60)  lv = 'lv2';
+            else if (mins >= 60 && mins < 120) lv = 'lv3';
+            else if (mins >= 120) lv = 'lv4';
+
+            const cell = document.createElement('div');
+            cell.className = 'streak-day ' + lv;
+            const tip = mins > 0
+                ? `${formatDate(dateStr)}: ${formatDuration(mins)}`
+                : formatDate(dateStr) + ': No study';
+            cell.setAttribute('data-tip', tip);
+            container.appendChild(cell);
+        }
+    }
+
+    // ── Time-of-day analysis ─────────────────────────────────
+    let todChartInstance = null;
+
+    function renderTodChart(sessions) {
+        const buckets = new Array(24).fill(0); // total minutes per hour
+
+        for (const s of sessions) {
+            if (!s.time) continue;
+            const hr = parseInt(s.time.split(':')[0], 10);
+            if (hr >= 0 && hr < 24) buckets[hr] += s.duration || 0;
+        }
+
+        // Find best hour
+        const maxMins = Math.max(...buckets);
+        const bestHr  = buckets.indexOf(maxMins);
+        const labels  = Array.from({ length: 24 }, (_, i) => {
+            const h = i % 12 || 12;
+            return (i < 12 ? h + ' AM' : h + ' PM');
+        });
+
+        if (maxMins > 0) {
+            const ampm = bestHr < 12 ? 'AM' : 'PM';
+            const h = (bestHr % 12) || 12;
+            document.getElementById('tod-insight').textContent =
+                `📈 You study best around ${h}:00 ${ampm} (${Math.round(maxMins)} min total). Keep it up!`;
+        }
+
+        const ctx = document.getElementById('todChart').getContext('2d');
+        const colors = buckets.map((v, i) => i === bestHr && v > 0 ? '#00d4aa' : '#6c63ff55');
+
+        if (todChartInstance) todChartInstance.destroy();
+
+        todChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Minutes studied',
+                    data: buckets,
+                    backgroundColor: colors,
+                    borderRadius: 4,
+                }],
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.raw} min`,
+                        },
+                    },
+                },
+                scales: {
+                    x: { ticks: { color: '#8a8fa8', font: { size: 10 } }, grid: { color: '#2e3347' } },
+                    y: { ticks: { color: '#8a8fa8' }, grid: { color: '#2e3347' } },
+                },
+            },
+        });
+    }
+
+    // ── Stats ────────────────────────────────────────────────
+    function updateStats(sessions) {
+        const totalMins = sessions.reduce((s, x) => s + (x.duration || 0), 0);
+        document.getElementById('stat-total-hours').textContent = (totalMins / 60).toFixed(1);
+        document.getElementById('stat-sessions').textContent = sessions.length;
+
+        const { current, best } = calcStreaks(sessions);
+        document.getElementById('stat-best-streak').textContent = best;
+        document.getElementById('current-streak').textContent = current;
+
+        // This week
+        const weekStart = getWeekLabel(todayStr());
+        const weekMins = sessions
+            .filter(s => getWeekLabel(s.date) === weekStart)
+            .reduce((s, x) => s + (x.duration || 0), 0);
+        document.getElementById('stat-this-week').textContent = (weekMins / 60).toFixed(1);
+    }
+
+    // ── Badges ───────────────────────────────────────────────
+    const BADGE_DEFS = [
+        {
+            id: 'first_session',
+            icon: '🎉',
+            name: 'First Step',
+            desc: 'Log your first session',
+            check: (s) => s.length >= 1,
+        },
+        {
+            id: 'streak_3',
+            icon: '🔥',
+            name: '3-Day Streak',
+            desc: '3 consecutive study days',
+            check: (s) => calcStreaks(s).best >= 3,
+        },
+        {
+            id: 'streak_7',
+            icon: '🌟',
+            name: '7-Day Streak',
+            desc: '7 consecutive study days',
+            check: (s) => calcStreaks(s).best >= 7,
+        },
+        {
+            id: 'streak_30',
+            icon: '🏅',
+            name: '30-Day Streak',
+            desc: '30 consecutive study days',
+            check: (s) => calcStreaks(s).best >= 30,
+        },
+        {
+            id: 'one_hour',
+            icon: '⏰',
+            name: '1hr Session',
+            desc: 'A single session ≥ 60 min',
+            check: (s) => s.some(x => x.duration >= 60),
+        },
+        {
+            id: 'ten_hours',
+            icon: '📚',
+            name: '10 Hours',
+            desc: '10 total hours studied',
+            check: (s) => s.reduce((a, x) => a + x.duration, 0) >= 600,
+        },
+        {
+            id: 'fifty_hours',
+            icon: '🧠',
+            name: '50 Hours',
+            desc: '50 total hours studied',
+            check: (s) => s.reduce((a, x) => a + x.duration, 0) >= 3000,
+        },
+        {
+            id: 'all_topics',
+            icon: '🎓',
+            name: 'All Topics',
+            desc: 'Study all 16 course topics',
+            check: (s) => {
+                const topics = new Set(s.map(x => x.topic));
+                const all = [
+                    'Sentence Stress','Word Stress','Intonation','Connected Speech','Weak Vowels',
+                    'Irregular Plurals','Difficult Consonants','Phrasal Verbs','Collocations',
+                    'Idioms','Advanced Grammar','Business English','Academic Writing',
+                    'Presentation Skills','Debate Techniques','Accent Reduction',
+                ];
+                return all.every(t => topics.has(t));
+            },
+        },
+        {
+            id: 'early_bird',
+            icon: '🌅',
+            name: 'Early Bird',
+            desc: '5 sessions before 8 AM',
+            check: (s) => s.filter(x => x.time && parseInt(x.time, 10) < 8).length >= 5,
+        },
+        {
+            id: 'night_owl',
+            icon: '🦉',
+            name: 'Night Owl',
+            desc: '5 sessions after 10 PM',
+            check: (s) => s.filter(x => x.time && parseInt(x.time, 10) >= 22).length >= 5,
+        },
+    ];
+
+    function renderBadges(sessions) {
+        const grid = document.getElementById('badges-grid');
+        grid.innerHTML = '';
+        for (const def of BADGE_DEFS) {
+            const earned = def.check(sessions);
+            const el = document.createElement('div');
+            el.className = 'badge' + (earned ? ' earned' : ' locked');
+            el.innerHTML = `
+                <span class="badge-icon">${def.icon}</span>
+                <span class="badge-name">${def.name}</span>
+                <span class="badge-desc">${def.desc}</span>
+            `;
+            grid.appendChild(el);
+            if (earned) el.title = 'Earned! ' + def.desc;
+        }
+    }
+
+    // ── Course map progress ───────────────────────────────────
+    const TOPICS = [
+        'Sentence Stress','Word Stress','Intonation','Connected Speech','Weak Vowels',
+        'Irregular Plurals','Difficult Consonants','Phrasal Verbs','Collocations',
+        'Idioms','Advanced Grammar','Business English','Academic Writing',
+        'Presentation Skills','Debate Techniques','Accent Reduction',
+    ];
+
+    function renderCourseMap(sessions) {
+        const topicMins = {};
+        for (const t of TOPICS) topicMins[t] = 0;
+        for (const s of sessions) {
+            if (topicMins[s.topic] !== undefined) topicMins[s.topic] += s.duration || 0;
+        }
+
+        const maxMins = Math.max(...Object.values(topicMins), 1);
+        const list = document.getElementById('course-progress-list');
+        list.innerHTML = '';
+
+        for (const t of TOPICS) {
+            const mins = topicMins[t];
+            const pct = Math.min(100, (mins / Math.max(maxMins, 120)) * 100);
+            list.innerHTML += `
+                <div class="course-item">
+                    <span class="course-item-label">${t}</span>
+                    <div class="course-bar-wrap">
+                        <div class="course-bar-fill" style="width:${pct}%"></div>
+                    </div>
+                    <span class="course-minutes">${mins >= 60 ? formatDuration(mins) : mins + ' m'}</span>
+                </div>`;
+        }
+    }
+
+    // ── Weekly leaderboard ───────────────────────────────────
+    function renderLeaderboard(sessions) {
+        const weekMap = {};
+        for (const s of sessions) {
+            const wk = getWeekLabel(s.date);
+            if (!weekMap[wk]) weekMap[wk] = { sessions: 0, mins: 0, dayMap: {} };
+            weekMap[wk].sessions++;
+            weekMap[wk].mins += s.duration || 0;
+            weekMap[wk].dayMap[s.date] = (weekMap[wk].dayMap[s.date] || 0) + (s.duration || 0);
+        }
+
+        const weeks = Object.keys(weekMap).sort().reverse().slice(0, 12);
+        const sorted = [...weeks].sort((a, b) => weekMap[b].mins - weekMap[a].mins);
+
+        const tbody = document.getElementById('leaderboard-body');
+        tbody.innerHTML = '';
+
+        if (!weeks.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">No weeks logged yet.</td></tr>';
+            return;
+        }
+
+        for (const wk of weeks) {
+            const d = weekMap[wk];
+            const rank = sorted.indexOf(wk) + 1;
+            const bestDayMins = Math.max(...Object.values(d.dayMap));
+            const bestDayDate = Object.keys(d.dayMap).find(k => d.dayMap[k] === bestDayMins);
+
+            const rankClass = rank <= 3 ? `r${rank}` : 'r-other';
+            const tr = document.createElement('tr');
+            if (rank <= 3) tr.className = `rank-${rank}`;
+            tr.innerHTML = `
+                <td>${weekRangeLabel(wk)}</td>
+                <td>${d.sessions}</td>
+                <td>${(d.mins / 60).toFixed(1)}</td>
+                <td>${bestDayDate ? formatDate(bestDayDate) + ` (${formatDuration(bestDayMins)})` : '–'}</td>
+                <td><span class="rank-badge ${rankClass}">#${rank}</span></td>
+            `;
+            tbody.appendChild(tr);
+        }
+    }
+
+    // ── Study log table ──────────────────────────────────────
+    let currentSearch = '';
+
+    function renderLogTable(sessions) {
+        const q = currentSearch.toLowerCase();
+        const filtered = q
+            ? sessions.filter(s =>
+                s.topic.toLowerCase().includes(q) ||
+                (s.notes || '').toLowerCase().includes(q) ||
+                s.date.includes(q))
+            : sessions;
+
+        const sorted = [...filtered].sort((a, b) => {
+            const cmp = b.date.localeCompare(a.date);
+            return cmp !== 0 ? cmp : (b.time || '').localeCompare(a.time || '');
+        });
+
+        const tbody = document.getElementById('log-body');
+        const empty = document.getElementById('log-empty');
+        tbody.innerHTML = '';
+
+        if (!sorted.length) {
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        for (const s of sorted) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${formatDate(s.date)}</td>
+                <td>${s.time || '–'}</td>
+                <td>${s.topic}</td>
+                <td>${formatDuration(s.duration)}</td>
+                <td>${s.notes ? s.notes.slice(0, 60) + (s.notes.length > 60 ? '…' : '') : '–'}</td>
+                <td><button class="delete-btn" data-id="${s.id}" title="Delete">🗑</button></td>
+            `;
+            tbody.appendChild(tr);
+        }
+    }
+
+    // ── Full render ──────────────────────────────────────────
+    function renderAll() {
+        const sessions = loadSessions();
+        updateStats(sessions);
+        updateLevelUI(sessions);
+        renderStreakCalendar(sessions);
+        renderTodChart(sessions);
+        renderBadges(sessions);
+        renderCourseMap(sessions);
+        renderLeaderboard(sessions);
+        renderLogTable(sessions);
+    }
+
+    // ── Log session ──────────────────────────────────────────
+    function logSession(data) {
+        const sessions = loadSessions();
+        sessions.push({
+            id:       Date.now() + Math.random(),
+            date:     data.date,
+            time:     data.time,
+            topic:    data.topic,
+            duration: data.duration,
+            notes:    data.notes,
+        });
+        saveSessions(sessions);
+
+        // check new badges
+        const prevBadgeCount = BADGE_DEFS.filter(b => b.check(sessions.slice(0, -1))).length;
+        const newBadgeCount  = BADGE_DEFS.filter(b => b.check(sessions)).length;
+        if (newBadgeCount > prevBadgeCount) {
+            const newBadge = BADGE_DEFS.find(b => b.check(sessions) && !b.check(sessions.slice(0, -1)));
+            if (newBadge) showToast(`🏅 New achievement: ${newBadge.name}!`, 5000);
+        }
+
+        renderAll();
+        showToast('✅ Session logged!');
+    }
+
+    // ── Live timer ───────────────────────────────────────────
+    let timerInterval = null;
+
+    function startTimer() {
+        const startMs = Date.now();
+        localStorage.setItem(LS_TIMER_START, startMs);
+        document.getElementById('live-timer-display').style.display = 'flex';
+        document.getElementById('btn-live-timer').disabled = true;
+
+        timerInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startMs) / 1000);
+            const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+            const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            document.getElementById('timer-value').textContent = `${h}:${m}:${s}`;
+        }, 1000);
+    }
+
+    function stopTimer() {
+        const startMs = parseInt(localStorage.getItem(LS_TIMER_START) || '0', 10);
+        clearInterval(timerInterval);
+        timerInterval = null;
+        localStorage.removeItem(LS_TIMER_START);
+        document.getElementById('live-timer-display').style.display = 'none';
+        document.getElementById('btn-live-timer').disabled = false;
+        document.getElementById('timer-value').textContent = '00:00:00';
+
+        if (!startMs) return;
+        const mins = Math.max(1, Math.round((Date.now() - startMs) / 60000));
+        document.getElementById('session-duration').value = mins;
+        showToast(`⏱ Timer stopped: ${mins} min. Review & click "Log Session".`);
+    }
+
+    // ── Smart reminders ──────────────────────────────────────
+    function getBestStudyHour(sessions) {
+        if (!sessions.length) return 9;
+        const buckets = new Array(24).fill(0);
+        for (const s of sessions) {
+            if (!s.time) continue;
+            const hr = parseInt(s.time.split(':')[0], 10);
+            if (hr >= 0 && hr < 24) buckets[hr] += s.duration || 0;
+        }
+        return buckets.indexOf(Math.max(...buckets));
+    }
+
+    async function requestNotificationPermission() {
+        if (!('Notification' in window)) return false;
+        if (Notification.permission === 'granted') return true;
+        const result = await Notification.requestPermission();
+        return result === 'granted';
+    }
+
+    function scheduleReminder(cfg) {
+        // Clear existing scheduled alarm (use a timestamp check)
+        const now = new Date();
+        const [hr, min] = cfg.time.split(':').map(Number);
+        const next = new Date(now);
+        next.setHours(hr, min, 0, 0);
+        if (next <= now) next.setDate(next.getDate() + 1);
+
+        const msUntil = next - now;
+        clearTimeout(reminderTimeoutId);
+        reminderTimeoutId = setTimeout(() => {
+            if (Notification.permission === 'granted') {
+                new Notification('C1 English Tracker 📚', {
+                    body: `Time to study! Your scheduled session is due. Keep your ${
+                        calcStreaks(loadSessions()).current}-day streak alive! 🔥`,
+                    icon: '',
+                });
+            }
+            // re-schedule for next day
+            scheduleReminder(cfg);
+        }, msUntil);
+    }
+
+    function scheduleWeeklySummary() {
+        const now = new Date();
+        const next = new Date(now);
+        // Next Sunday at 09:00
+        const daysUntilSun = (7 - now.getDay()) % 7 || 7;
+        next.setDate(next.getDate() + daysUntilSun);
+        next.setHours(9, 0, 0, 0);
+        const msUntil = next - now;
+
+        clearTimeout(weeklySummaryTimeoutId);
+        weeklySummaryTimeoutId = setTimeout(() => {
+            const sessions = loadSessions();
+            const wk = getWeekLabel(todayStr());
+            const wkSessions = sessions.filter(s => getWeekLabel(s.date) === wk);
+            const wkMins = wkSessions.reduce((a, x) => a + x.duration, 0);
+            if (Notification.permission === 'granted') {
+                new Notification('📊 Weekly Study Summary', {
+                    body: `This week: ${wkSessions.length} sessions, ${(wkMins / 60).toFixed(1)} hours. ${
+                        calcStreaks(sessions).current > 0 ? `🔥 ${calcStreaks(sessions).current}-day streak!` : 'Start a new streak tomorrow!'}`,
+                });
+            }
+            scheduleWeeklySummary();
+        }, msUntil);
+    }
+
+    function applyReminderSettings() {
+        const cfg = loadReminder();
+        if (cfg.enabled && cfg.time) scheduleReminder(cfg);
+        if (cfg.weekly) scheduleWeeklySummary();
+    }
+
+    // ── PDF export ───────────────────────────────────────────
+    function downloadPDF() {
+        const sessions = loadSessions();
+        if (!sessions.length) { showToast('No sessions to export.'); return; }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        doc.setFontSize(18);
+        doc.text('C1 English Tracker – Study Report', 14, 20);
+
+        doc.setFontSize(11);
+        const totalMins = sessions.reduce((s, x) => s + x.duration, 0);
+        const { current, best } = calcStreaks(sessions);
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        doc.text(`Generated: ${new Date().toLocaleDateString()} | Timezone: ${tz}`, 14, 30);
+        doc.text(`Total hours: ${(totalMins / 60).toFixed(1)} | Sessions: ${sessions.length} | Best streak: ${best} days`, 14, 38);
+
+        const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
+
+        doc.autoTable({
+            startY: 46,
+            head: [['Date', 'Time', 'Topic', 'Duration', 'Notes']],
+            body: sorted.map(s => [
+                formatDate(s.date),
+                s.time || '–',
+                s.topic,
+                formatDuration(s.duration),
+                (s.notes || '').slice(0, 60),
+            ]),
+            styles: { fontSize: 9, cellPadding: 3 },
+            headStyles: { fillColor: [108, 99, 255] },
+            alternateRowStyles: { fillColor: [245, 245, 255] },
+        });
+
+        doc.save('c1-english-study-report.pdf');
+        showToast('📄 PDF downloaded!');
+    }
+
+    // ── Cloud backup: export / import ────────────────────────
+    function exportBackup() {
+        const data = {
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            sessions: loadSessions(),
+            reminder: loadReminder(),
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `c1-tracker-backup-${todayStr()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('☁ Backup exported!');
+    }
+
+    function importBackup(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!Array.isArray(data.sessions)) throw new Error('Invalid format');
+                saveSessions(data.sessions);
+                if (data.reminder) saveReminder(data.reminder);
+                renderAll();
+                showToast(`📥 Imported ${data.sessions.length} sessions!`);
+            } catch {
+                showToast('❌ Import failed: invalid file.');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ── Event listeners ──────────────────────────────────────
+    function initEventListeners() {
+        // Pre-fill date/time
+        const dateInput = document.getElementById('session-date');
+        const timeInput = document.getElementById('session-time');
+        dateInput.value = todayStr();
+        const now = new Date();
+        timeInput.value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+        // Log session
+        document.getElementById('btn-log-session').addEventListener('click', () => {
+            const topic    = document.getElementById('topic-select').value;
+            const duration = parseInt(document.getElementById('session-duration').value, 10);
+            const date     = document.getElementById('session-date').value;
+            const time     = document.getElementById('session-time').value;
+            const notes    = document.getElementById('session-notes').value.trim();
+
+            if (!topic || !duration || duration < 1 || !date) {
+                showToast('❗ Please fill in topic, duration and date.'); return;
+            }
+            logSession({ topic, duration, date, time, notes });
+
+            document.getElementById('session-duration').value = '';
+            document.getElementById('session-notes').value = '';
+            document.getElementById('session-date').value = todayStr();
+        });
+
+        // Live timer
+        document.getElementById('btn-live-timer').addEventListener('click', startTimer);
+        document.getElementById('btn-stop-timer').addEventListener('click', stopTimer);
+
+        // Delete session
+        document.getElementById('log-body').addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const id = parseFloat(e.target.dataset.id);
+                const sessions = loadSessions().filter(s => s.id !== id);
+                saveSessions(sessions);
+                renderAll();
+                showToast('🗑 Session deleted.');
+            }
+        });
+
+        // Search
+        document.getElementById('log-search').addEventListener('input', (e) => {
+            currentSearch = e.target.value;
+            renderLogTable(loadSessions());
+        });
+
+        // PDF
+        document.getElementById('btn-pdf').addEventListener('click', downloadPDF);
+
+        // Backup export
+        document.getElementById('btn-backup-export').addEventListener('click', exportBackup);
+
+        // Backup import
+        document.getElementById('btn-backup-import').addEventListener('click', () => {
+            document.getElementById('import-file').click();
+        });
+        document.getElementById('import-file').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) importBackup(file);
+            e.target.value = '';
+        });
+
+        // Reminder modal
+        document.getElementById('btn-reminder').addEventListener('click', () => {
+            const cfg = loadReminder();
+            document.getElementById('reminder-time').value = cfg.time || '09:00';
+            document.getElementById('reminder-smart').checked = !!cfg.smart;
+            document.getElementById('reminder-weekly').checked = !!cfg.weekly;
+            document.getElementById('reminder-modal').style.display = 'flex';
+        });
+        document.getElementById('btn-close-reminder').addEventListener('click', () => {
+            document.getElementById('reminder-modal').style.display = 'none';
+        });
+        document.getElementById('reminder-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('reminder-modal'))
+                document.getElementById('reminder-modal').style.display = 'none';
+        });
+
+        document.getElementById('reminder-smart').addEventListener('change', function () {
+            if (this.checked) {
+                const sessions = loadSessions();
+                const hr = getBestStudyHour(sessions);
+                document.getElementById('reminder-time').value =
+                    `${String(hr).padStart(2, '0')}:00`;
+            }
+        });
+
+        document.getElementById('btn-save-reminder').addEventListener('click', async () => {
+            const time   = document.getElementById('reminder-time').value;
+            const smart  = document.getElementById('reminder-smart').checked;
+            const weekly = document.getElementById('reminder-weekly').checked;
+
+            const granted = await requestNotificationPermission();
+            if (!granted) {
+                document.getElementById('reminder-status').textContent =
+                    '❌ Notification permission denied. Enable it in your browser settings.';
+                return;
+            }
+
+            const cfg = { enabled: true, time, smart, weekly };
+            saveReminder(cfg);
+            scheduleReminder(cfg);
+            if (weekly) scheduleWeeklySummary();
+
+            document.getElementById('reminder-status').textContent =
+                `✅ Reminder set for ${time} daily${weekly ? ' + weekly summary' : ''}.`;
+
+            setTimeout(() => {
+                document.getElementById('reminder-modal').style.display = 'none';
+            }, 1500);
+        });
+    }
+
+    // ── Bootstrap ────────────────────────────────────────────
+    function init() {
+        detectTimezone();
+        initEventListeners();
+        renderAll();
+        applyReminderSettings();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+}());
