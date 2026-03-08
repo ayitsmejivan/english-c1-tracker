@@ -3,46 +3,233 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced C1 English Course Progress Tracker</title>
+    <title>C1 English Tracker – Advanced Progress Dashboard</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- ===== HEADER ===== -->
     <header>
-        <h1>Advanced C1 English Course Progress Tracker</h1>
+        <div class="header-inner">
+            <div class="header-title">
+                <span class="logo">🎓</span>
+                <div>
+                    <h1>C1 English Tracker</h1>
+                    <p id="timezone-display" class="subtitle">Detecting timezone…</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="btn-reminder" class="btn btn-outline" title="Set smart reminder">🔔 Reminders</button>
+                <button id="btn-backup-export" class="btn btn-outline" title="Export backup">☁ Export</button>
+                <button id="btn-backup-import" class="btn btn-outline" title="Import backup">📥 Import</button>
+                <input type="file" id="import-file" accept=".json" style="display:none">
+                <button id="btn-pdf" class="btn btn-primary" title="Download PDF report">📄 PDF Report</button>
+            </div>
+        </div>
     </header>
-    <section id="course-map">
-        <h2>Course Map</h2>
-        <ul>
-            <li>Sentence Stress</li>
-            <li>Word Stress</li>
-            <li>Intonation</li>
-            <li>Connected Speech</li>
-            <li>Weak Vowels</li>
-            <li>Irregular Plurals</li>
-            <li>Difficult Consonants</li>
-            <li>Phrasal Verbs</li>
-            <li>Collocations</li>
-            <li>Idioms</li>
-            <li>Advanced Grammar</li>
-            <li>Business English</li>
-            <li>Academic Writing</li>
-            <li>Presentation Skills</li>
-            <li>Debate Techniques</li>
-            <li>Accent Reduction</li>
-        </ul>
+
+    <!-- ===== LEVEL BANNER ===== -->
+    <section id="level-banner">
+        <div class="level-card">
+            <div class="level-icon" id="level-icon">🌱</div>
+            <div class="level-info">
+                <div id="level-label" class="level-label">Beginner</div>
+                <div class="level-progress-wrap">
+                    <div class="level-progress-bar">
+                        <div id="level-progress-fill" class="level-progress-fill" style="width:0%"></div>
+                    </div>
+                    <span id="level-progress-text" class="level-progress-text">0 / 10 hrs to next level</span>
+                </div>
+            </div>
+            <div class="streak-pill">
+                <span>🔥</span>
+                <span id="current-streak">0</span>
+                <span>day streak</span>
+            </div>
+        </div>
     </section>
-    <section id="study-log">
-        <h2>Study Log</h2>
-        <p>Track your study sessions here...</p>
-    </section>
-    <section id="habit-calendar">
-        <h2>Habit Calendar</h2>
-        <p>Visualize your study habits...</p>
-    </section>
-    <section id="analytics">
-        <h2>Analytics Dashboard</h2>
-        <p>View your progress here...</p>
-    </section>
+
+    <!-- ===== MAIN GRID ===== -->
+    <main>
+
+        <!-- === SESSION LOGGER === -->
+        <section class="card" id="session-logger">
+            <h2>📝 Log Study Session</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="topic-select">Topic</label>
+                    <select id="topic-select">
+                        <option value="Sentence Stress">Sentence Stress</option>
+                        <option value="Word Stress">Word Stress</option>
+                        <option value="Intonation">Intonation</option>
+                        <option value="Connected Speech">Connected Speech</option>
+                        <option value="Weak Vowels">Weak Vowels</option>
+                        <option value="Irregular Plurals">Irregular Plurals</option>
+                        <option value="Difficult Consonants">Difficult Consonants</option>
+                        <option value="Phrasal Verbs">Phrasal Verbs</option>
+                        <option value="Collocations">Collocations</option>
+                        <option value="Idioms">Idioms</option>
+                        <option value="Advanced Grammar">Advanced Grammar</option>
+                        <option value="Business English">Business English</option>
+                        <option value="Academic Writing">Academic Writing</option>
+                        <option value="Presentation Skills">Presentation Skills</option>
+                        <option value="Debate Techniques">Debate Techniques</option>
+                        <option value="Accent Reduction">Accent Reduction</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="session-duration">Duration (minutes)</label>
+                    <input type="number" id="session-duration" min="1" max="480" placeholder="e.g. 30">
+                </div>
+                <div class="form-group">
+                    <label for="session-date">Date</label>
+                    <input type="date" id="session-date">
+                </div>
+                <div class="form-group">
+                    <label for="session-time">Time of Day</label>
+                    <input type="time" id="session-time">
+                </div>
+                <div class="form-group form-group--full">
+                    <label for="session-notes">Notes (optional)</label>
+                    <textarea id="session-notes" rows="2" placeholder="What did you learn or practise?"></textarea>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button id="btn-live-timer" class="btn btn-secondary">⏱ Start Live Timer</button>
+                <button id="btn-log-session" class="btn btn-primary">+ Log Session</button>
+            </div>
+            <div id="live-timer-display" class="live-timer" style="display:none">
+                <span id="timer-value">00:00:00</span>
+                <button id="btn-stop-timer" class="btn btn-danger btn-sm">■ Stop &amp; Log</button>
+            </div>
+        </section>
+
+        <!-- === STAT CARDS === -->
+        <section class="card stat-cards" id="stat-cards">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-total-hours">0</div>
+                <div class="stat-label">Total Hours</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-sessions">0</div>
+                <div class="stat-label">Sessions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-best-streak">0</div>
+                <div class="stat-label">Best Streak</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-this-week">0</div>
+                <div class="stat-label">This Week (hrs)</div>
+            </div>
+        </section>
+
+        <!-- === STREAK CHART === -->
+        <section class="card" id="streak-section">
+            <h2>🔥 Study Streak Calendar</h2>
+            <div id="streak-calendar" class="streak-calendar"></div>
+            <div class="streak-legend">
+                <span class="legend-box lv0"></span> None
+                <span class="legend-box lv1"></span> &lt;30 min
+                <span class="legend-box lv2"></span> 30–59 min
+                <span class="legend-box lv3"></span> 1–2 hrs
+                <span class="legend-box lv4"></span> 2+ hrs
+            </div>
+        </section>
+
+        <!-- === TIME-OF-DAY ANALYSIS === -->
+        <section class="card" id="tod-section">
+            <h2>🕐 Time-of-Day Analysis</h2>
+            <p class="card-sub" id="tod-insight">No data yet – log your first session to see when you study best!</p>
+            <canvas id="todChart" height="180"></canvas>
+        </section>
+
+        <!-- === WEEKLY LEADERBOARD === -->
+        <section class="card" id="leaderboard-section">
+            <h2>🏆 Weekly Leaderboard (vs Yourself)</h2>
+            <div id="leaderboard-table-wrap">
+                <table id="leaderboard-table">
+                    <thead>
+                        <tr>
+                            <th>Week</th>
+                            <th>Sessions</th>
+                            <th>Hours</th>
+                            <th>Best Day</th>
+                            <th>Rank</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- === ACHIEVEMENTS === -->
+        <section class="card" id="achievements-section">
+            <h2>🏅 Achievements</h2>
+            <div id="badges-grid" class="badges-grid"></div>
+        </section>
+
+        <!-- === COURSE MAP === -->
+        <section class="card" id="course-map">
+            <h2>📚 Course Map</h2>
+            <div id="course-progress-list" class="course-progress-list"></div>
+        </section>
+
+        <!-- === STUDY LOG TABLE === -->
+        <section class="card" id="study-log">
+            <div class="section-header">
+                <h2>📋 Study Log</h2>
+                <input type="text" id="log-search" placeholder="Search sessions…" class="search-input">
+            </div>
+            <div id="log-table-wrap">
+                <table id="log-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Topic</th>
+                            <th>Duration</th>
+                            <th>Notes</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-body"></tbody>
+                </table>
+                <p id="log-empty" class="empty-msg">No sessions logged yet.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ===== REMINDER MODAL ===== -->
+    <div id="reminder-modal" class="modal" style="display:none">
+        <div class="modal-box">
+            <h3>🔔 Smart Reminders</h3>
+            <p>Based on your study patterns, we'll remind you at the best time each day.</p>
+            <div class="form-group">
+                <label for="reminder-time">Preferred reminder time</label>
+                <input type="time" id="reminder-time" value="09:00">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="reminder-smart"> Use smart time (auto-detected from your patterns)
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="reminder-weekly"> Weekly summary notification (Sundays)
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-save-reminder" class="btn btn-primary">Save</button>
+                <button id="btn-close-reminder" class="btn btn-outline">Cancel</button>
+            </div>
+            <p id="reminder-status" class="reminder-status"></p>
+        </div>
+    </div>
+
+    <!-- ===== TOAST ===== -->
+    <div id="toast" class="toast" style="display:none"></div>
+
     <script src="script.js"></script>
 </body>
 </html>
