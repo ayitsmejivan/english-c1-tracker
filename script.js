@@ -11,6 +11,7 @@
     const LS_TIMER_START = 'c1t_timer_start';
     const LS_GH_TOKEN    = 'c1t_gh_token';
     const LS_GH_GIST_ID  = 'c1t_gh_gist_id';
+    const LS_VOCABULARY  = 'c1t_vocabulary';
     const GIST_FILENAME  = 'c1-english-tracker-data.json';
 
     // ── Module-scoped timeout IDs (avoid polluting window) ───
@@ -40,6 +41,70 @@
 
     function saveReminder(cfg) {
         localStorage.setItem(LS_REMINDER, JSON.stringify(cfg));
+    }
+
+    // ── Vocabulary helpers ────────────────────────────────────
+    function loadVocabulary() {
+        try { return JSON.parse(localStorage.getItem(LS_VOCABULARY)) || []; }
+        catch { return []; }
+    }
+
+    function saveVocabulary(vocab) {
+        localStorage.setItem(LS_VOCABULARY, JSON.stringify(vocab));
+        syncToGist();
+    }
+
+    function genId() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    /** SM-2 spaced repetition algorithm.
+     *  quality: 0 (forgot) | 1 (hard) | 2 (good) | 3 (easy)
+     *  Returns updated word object.
+     */
+    function sm2Update(word, quality) {
+        let { easeFactor = 2.5, interval = 1, repetitions = 0 } = word;
+
+        if (quality < 2) {
+            // Failed recall – restart
+            repetitions = 0;
+            interval = 1;
+        } else {
+            if (repetitions === 0)      interval = 1;
+            else if (repetitions === 1) interval = 6;
+            else                        interval = Math.round(interval * easeFactor);
+            repetitions++;
+        }
+
+        // Update ease factor (EF)
+        easeFactor = easeFactor + (0.1 - (3 - quality) * (0.08 + (3 - quality) * 0.02));
+        if (easeFactor < 1.3) easeFactor = 1.3;
+
+        const nextReview = new Date();
+        nextReview.setDate(nextReview.getDate() + interval);
+
+        return {
+            ...word,
+            easeFactor: Math.round(easeFactor * 1000) / 1000,
+            interval,
+            repetitions,
+            nextReview: nextReview.toISOString().slice(0, 10),
+            lastReviewed: todayStr(),
+        };
+    }
+
+    /** Returns the learning state label for a word. */
+    function wordState(word) {
+        if (!word.repetitions || word.repetitions === 0) return 'new';
+        if (word.repetitions <= 2) return 'learning';
+        if ((word.interval || 1) > 21) return 'mastered';
+        return 'review';
+    }
+
+    /** True if the word is due for review today. */
+    function isDueToday(word) {
+        if (!word.nextReview) return true;  // never reviewed
+        return word.nextReview <= todayStr();
     }
 
     // ── Timezone detection ───────────────────────────────────
@@ -496,9 +561,418 @@
         }
     }
 
+    // ── Skill radar chart ────────────────────────────────────
+    const SKILL_COLORS = {
+        Reading:   '#7c6eff',
+        Listening: '#00e5b8',
+        Speaking:  '#ff5e7e',
+        Writing:   '#ffcc47',
+    };
+
+    function calcSkillMins(sessions) {
+        const skills = { Reading: 0, Listening: 0, Speaking: 0, Writing: 0 };
+        for (const s of sessions) {
+            if (s.skill && skills[s.skill] !== undefined) {
+                skills[s.skill] += s.duration || 0;
+            }
+        }
+        return skills;
+    }
+
+    function renderSkillRadar(sessions) {
+        const skills = calcSkillMins(sessions);
+        const total  = Object.values(skills).reduce((a, b) => a + b, 0);
+
+        const insightEl = document.getElementById('skill-insight');
+        if (total === 0) {
+            insightEl.textContent = 'Select a skill type when logging sessions to track your Reading, Listening, Speaking & Writing balance.';
+        } else {
+            const sorted = Object.entries(skills).sort((a, b) => a[1] - b[1]);
+            const weakest  = sorted[0][0];
+            const strongest = sorted[sorted.length - 1][0];
+            insightEl.textContent = `Strongest: ${strongest} · Needs work: ${weakest}. Keep practising all four skills for balanced C1 progress!`;
+        }
+
+        // Draw canvas radar
+        const canvas = document.getElementById('radarChart');
+        const size   = canvas.offsetWidth || 260;
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, size, size);
+
+        const cx = size / 2;
+        const cy = size / 2;
+        const maxR = size * 0.38;
+
+        const labels = ['Reading', 'Writing', 'Speaking', 'Listening'];
+        const angles = [-Math.PI / 2, 0, Math.PI / 2, Math.PI]; // top, right, bottom, left
+
+        const maxMins = Math.max(...Object.values(skills), 60);
+
+        // Draw grid rings
+        for (let r = 1; r <= 4; r++) {
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) {
+                const rad = (maxR / 4) * r;
+                const x = cx + rad * Math.cos(angles[i]);
+                const y = cy + rad * Math.sin(angles[i]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.strokeStyle = 'rgba(46,53,84,.7)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // Draw axes
+        for (let i = 0; i < 4; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + maxR * Math.cos(angles[i]), cy + maxR * Math.sin(angles[i]));
+            ctx.strokeStyle = 'rgba(46,53,84,.7)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // Draw data polygon
+        if (total > 0) {
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) {
+                const val = skills[labels[i]];
+                const rad = (val / maxMins) * maxR;
+                const x = cx + rad * Math.cos(angles[i]);
+                const y = cy + rad * Math.sin(angles[i]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(124,110,255,.18)';
+            ctx.fill();
+            ctx.strokeStyle = '#7c6eff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Dots
+            for (let i = 0; i < 4; i++) {
+                const val = skills[labels[i]];
+                const rad = (val / maxMins) * maxR;
+                const x = cx + rad * Math.cos(angles[i]);
+                const y = cy + rad * Math.sin(angles[i]);
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = SKILL_COLORS[labels[i]];
+                ctx.fill();
+            }
+        }
+
+        // Labels
+        ctx.font = `600 ${Math.round(size * 0.05)}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const labelOffset = maxR * 1.2;
+        const labelPairs = [
+            ['Reading',   cx,                    cy - labelOffset],
+            ['Writing',   cx + labelOffset,       cy],
+            ['Speaking',  cx,                    cy + labelOffset],
+            ['Listening', cx - labelOffset,       cy],
+        ];
+        for (const [label, lx, ly] of labelPairs) {
+            ctx.fillStyle = SKILL_COLORS[label];
+            ctx.fillText(label, lx, ly);
+        }
+
+        // Skill bars
+        const barsEl = document.getElementById('skill-bars');
+        barsEl.innerHTML = '';
+        for (const label of labels) {
+            const mins = skills[label];
+            const pct  = total > 0 ? Math.round((mins / Math.max(...Object.values(skills), 1)) * 100) : 0;
+            const color = SKILL_COLORS[label];
+            barsEl.innerHTML += `
+                <div class="skill-bar-item">
+                    <span class="skill-bar-label">${label}</span>
+                    <div class="skill-bar-track">
+                        <div class="skill-bar-fill" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                    <span class="skill-bar-value">${mins >= 60 ? formatDuration(mins) : mins + 'm'}</span>
+                </div>`;
+        }
+    }
+
+    // ── Smart daily plan ─────────────────────────────────────
+    function renderSmartPlan(sessions, vocab) {
+        const el = document.getElementById('plan-content');
+        el.innerHTML = '';
+
+        const dueWords  = vocab.filter(isDueToday);
+        const newWords  = vocab.filter(w => !w.repetitions || w.repetitions === 0);
+        const skills    = calcSkillMins(sessions);
+        const totalSkill = Object.values(skills).reduce((a, b) => a + b, 0);
+
+        // Find weakest skill (among those with any data; otherwise first)
+        let weakSkill = 'Speaking';
+        if (totalSkill > 0) {
+            weakSkill = Object.entries(skills).sort((a, b) => a[1] - b[1])[0][0];
+        }
+
+        const reviewCount = dueWords.length;
+        const newGoal     = Math.min(newWords.length, 10);
+        const estMins     = reviewCount * 1 + newGoal * 2 + 20;
+
+        const items = [];
+
+        if (reviewCount > 0) {
+            items.push({
+                icon: '🔁',
+                title: `Review ${reviewCount} word${reviewCount !== 1 ? 's' : ''} due today`,
+                desc: 'Spaced repetition keeps vocabulary fresh. Click "Start Review" in the Review Queue below.',
+                tag: `<span class="plan-tag plan-tag--review">SM-2</span>`,
+            });
+        }
+
+        if (newGoal > 0) {
+            items.push({
+                icon: '📖',
+                title: `Learn ${newGoal} new word${newGoal !== 1 ? 's' : ''}`,
+                desc: 'Add new vocabulary from today\'s reading or listening. Aim for C1-level words.',
+                tag: `<span class="plan-tag plan-tag--new">New</span>`,
+            });
+        }
+
+        items.push({
+            icon: skillEmoji(weakSkill),
+            title: `Focus on ${weakSkill} today`,
+            desc: `${weakSkill} is your weakest skill. Spend at least 20 minutes on targeted ${weakSkill.toLowerCase()} practice.`,
+            tag: `<span class="plan-tag plan-tag--weak">Needs work</span>`,
+        });
+
+        items.push({
+            icon: '⏱',
+            title: `Estimated study time: ~${estMins} minutes`,
+            desc: `${reviewCount} vocab reviews + ${newGoal} new words + 20 min skill practice = a complete C1 session.`,
+            tag: `<span class="plan-tag plan-tag--time">Today's goal</span>`,
+        });
+
+        for (const item of items) {
+            el.innerHTML += `
+                <div class="plan-item">
+                    <div class="plan-icon">${item.icon}</div>
+                    <div class="plan-text">
+                        <div class="plan-title">${item.title} ${item.tag}</div>
+                        <div class="plan-desc">${item.desc}</div>
+                    </div>
+                </div>`;
+        }
+    }
+
+    function skillEmoji(skill) {
+        const map = { Reading: '📖', Listening: '🎧', Speaking: '🗣', Writing: '✍️' };
+        return map[skill] || '🎯';
+    }
+
+    // ── Vocabulary Hub ───────────────────────────────────────
+    let vocabSearch = '';
+    let vocabFilterCat = '';
+    let vocabFilterState = '';
+
+    function renderVocabHub(vocab) {
+        // Stats
+        const statsEl = document.getElementById('vocab-stats');
+        const counts = { new: 0, learning: 0, review: 0, mastered: 0 };
+        let dueCount = 0;
+        for (const w of vocab) {
+            counts[wordState(w)]++;
+            if (isDueToday(w)) dueCount++;
+        }
+        statsEl.innerHTML = `
+            <span class="vocab-stat-pill vocab-stat-pill--new">🆕 New: ${counts.new}</span>
+            <span class="vocab-stat-pill vocab-stat-pill--learning">📝 Learning: ${counts.learning}</span>
+            <span class="vocab-stat-pill vocab-stat-pill--review">🔄 Review: ${counts.review}</span>
+            <span class="vocab-stat-pill vocab-stat-pill--mastered">✅ Mastered: ${counts.mastered}</span>
+            <span class="vocab-stat-pill vocab-stat-pill--due">📅 Due today: ${dueCount}</span>
+        `;
+
+        // Filter
+        const q = vocabSearch.toLowerCase();
+        let filtered = vocab.filter(w => {
+            const matchSearch = !q ||
+                w.word.toLowerCase().includes(q) ||
+                (w.definition || '').toLowerCase().includes(q) ||
+                (w.example || '').toLowerCase().includes(q);
+            const matchCat   = !vocabFilterCat   || w.category === vocabFilterCat;
+            const matchState = !vocabFilterState || wordState(w) === vocabFilterState;
+            return matchSearch && matchCat && matchState;
+        });
+
+        // Sort: due first, then by word
+        filtered.sort((a, b) => {
+            const aDue = isDueToday(a) ? 0 : 1;
+            const bDue = isDueToday(b) ? 0 : 1;
+            if (aDue !== bDue) return aDue - bDue;
+            return a.word.localeCompare(b.word);
+        });
+
+        const listEl  = document.getElementById('vocab-list');
+        const emptyEl = document.getElementById('vocab-empty');
+        listEl.innerHTML = '';
+
+        if (!filtered.length) {
+            emptyEl.style.display = 'block';
+            return;
+        }
+        emptyEl.style.display = 'none';
+
+        for (const w of filtered) {
+            const state = wordState(w);
+            const due   = isDueToday(w);
+            const nextReviewLabel = w.nextReview
+                ? (due ? '📅 Due today' : `Next: ${formatDate(w.nextReview)}`)
+                : '🆕 Never reviewed';
+
+            listEl.innerHTML += `
+                <div class="vocab-card vocab-card--${state}" data-id="${w.id}">
+                    <div class="vocab-card-header">
+                        <div>
+                            <div class="vocab-word">${escapeHtml(w.word)}</div>
+                            <div class="vocab-category">${escapeHtml(w.category || '')}</div>
+                        </div>
+                        <div class="vocab-meta">
+                            <span class="vocab-diff-badge diff-${w.difficulty || 'C1'}">${w.difficulty || 'C1'}</span>
+                            <span class="vocab-state-badge state-${state}">${state}</span>
+                        </div>
+                    </div>
+                    ${w.pronunciation ? `<div class="vocab-pronunciation">${escapeHtml(w.pronunciation)}</div>` : ''}
+                    <div class="vocab-definition">${escapeHtml(w.definition || '')}</div>
+                    ${w.example ? `<div class="vocab-example">"${escapeHtml(w.example)}"</div>` : ''}
+                    <div class="vocab-card-footer">
+                        <span class="vocab-next-review ${due ? 'vocab-next-review--due' : ''}">${nextReviewLabel}</span>
+                        <div class="vocab-card-actions">
+                            <button class="vocab-edit-btn" data-id="${w.id}" title="Edit">✏️</button>
+                            <button class="vocab-delete-btn" data-id="${w.id}" title="Delete">🗑</button>
+                        </div>
+                    </div>
+                </div>`;
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    // ── Review Queue ─────────────────────────────────────────
+    let reviewQueue    = [];
+    let reviewIndex    = 0;
+    let reviewRevealed = false;
+
+    function renderReviewQueue(vocab) {
+        const due     = vocab.filter(isDueToday);
+        const total   = vocab.length;
+        const mastered = vocab.filter(w => wordState(w) === 'mastered').length;
+
+        const summaryEl = document.getElementById('review-queue-summary');
+        summaryEl.innerHTML = `
+            <div class="rq-stat">
+                <span class="rq-stat-value">${due.length}</span>
+                <span class="rq-stat-label">Due Today</span>
+            </div>
+            <div class="rq-divider"></div>
+            <div class="rq-stat">
+                <span class="rq-stat-value">${total}</span>
+                <span class="rq-stat-label">Total Words</span>
+            </div>
+            <div class="rq-divider"></div>
+            <div class="rq-stat">
+                <span class="rq-stat-value">${mastered}</span>
+                <span class="rq-stat-label">Mastered</span>
+            </div>
+            ${due.length > 0
+                ? `<button class="btn btn-primary rq-start-btn" id="btn-start-review">▶ Start Review (${due.length})</button>`
+                : `<span class="rq-stat rq-start-btn" style="color:var(--accent2);font-weight:700;font-size:.87rem">✅ All caught up for today!</span>`}
+        `;
+
+        // Re-attach start button listener
+        const startBtn = document.getElementById('btn-start-review');
+        if (startBtn) {
+            startBtn.addEventListener('click', () => startReviewSession(due));
+        }
+    }
+
+    function startReviewSession(queue) {
+        reviewQueue    = [...queue].sort(() => Math.random() - 0.5);
+        reviewIndex    = 0;
+        reviewRevealed = false;
+        document.getElementById('review-flashcard').style.display = 'block';
+        showFlashcard();
+    }
+
+    function showFlashcard() {
+        if (reviewIndex >= reviewQueue.length) {
+            // Session complete
+            document.getElementById('review-flashcard').innerHTML = `
+                <div class="fc-complete">
+                    <div class="fc-complete-icon">🎉</div>
+                    <div class="fc-complete-title">Review Complete!</div>
+                    <div class="fc-complete-desc">
+                        You reviewed ${reviewQueue.length} word${reviewQueue.length !== 1 ? 's' : ''} today.<br>
+                        Great work — your vocabulary is getting stronger!
+                    </div>
+                </div>`;
+            showToast(`✅ Review session complete! ${reviewQueue.length} words reviewed.`);
+            renderReviewQueue(loadVocabulary());
+            return;
+        }
+
+        const word = reviewQueue[reviewIndex];
+        reviewRevealed = false;
+
+        const pct = reviewIndex / reviewQueue.length * 100;
+        document.getElementById('fc-progress-text').textContent = `${reviewIndex + 1} / ${reviewQueue.length}`;
+        document.getElementById('fc-progress-fill').style.width = pct + '%';
+
+        document.getElementById('fc-word').textContent       = word.word;
+        document.getElementById('fc-category').textContent   = `${word.category || ''} · ${word.difficulty || 'C1'}`;
+        document.getElementById('fc-definition').textContent = word.definition || '';
+        document.getElementById('fc-example').textContent    = word.example ? `"${word.example}"` : '';
+        document.getElementById('fc-pronunciation').textContent = word.pronunciation || '';
+
+        document.getElementById('fc-definition').style.display    = 'none';
+        document.getElementById('fc-example').style.display       = 'none';
+        document.getElementById('fc-pronunciation').style.display = 'none';
+        document.getElementById('fc-reveal-hint').style.display   = 'block';
+        document.getElementById('fc-actions').style.display       = 'none';
+    }
+
+    function revealFlashcard() {
+        if (reviewRevealed) return;
+        reviewRevealed = true;
+
+        const word = reviewQueue[reviewIndex];
+        document.getElementById('fc-reveal-hint').style.display   = 'none';
+        document.getElementById('fc-definition').style.display    = 'block';
+        if (word.example)       document.getElementById('fc-example').style.display       = 'block';
+        if (word.pronunciation) document.getElementById('fc-pronunciation').style.display = 'block';
+        document.getElementById('fc-actions').style.display = 'flex';
+    }
+
+    function handleReviewResponse(quality) {
+        const vocab  = loadVocabulary();
+        const word   = reviewQueue[reviewIndex];
+        const idx    = vocab.findIndex(w => w.id === word.id);
+        if (idx !== -1) {
+            vocab[idx] = sm2Update(vocab[idx], quality);
+            saveVocabulary(vocab);
+        }
+        reviewIndex++;
+        showFlashcard();
+    }
+
     // ── Full render ──────────────────────────────────────────
     function renderAll() {
         const sessions = loadSessions();
+        const vocab    = loadVocabulary();
         updateStats(sessions);
         updateLevelUI(sessions);
         renderStreakCalendar(sessions);
@@ -507,6 +981,10 @@
         renderCourseMap(sessions);
         renderLeaderboard(sessions);
         renderLogTable(sessions);
+        renderSkillRadar(sessions);
+        renderSmartPlan(sessions, vocab);
+        renderVocabHub(vocab);
+        renderReviewQueue(vocab);
     }
 
     // ── Log session ──────────────────────────────────────────
@@ -517,6 +995,7 @@
             date:     data.date,
             time:     data.time,
             topic:    data.topic,
+            skill:    data.skill || 'General',
             duration: data.duration,
             notes:    data.notes,
         });
@@ -751,8 +1230,9 @@
 
         setSyncStatus('syncing');
         try {
-            const sessions = loadSessions();
-            const payload  = { sessions, version: 2, updatedAt: new Date().toISOString() };
+            const sessions    = loadSessions();
+            const vocabulary  = loadVocabulary();
+            const payload     = { sessions, vocabulary, version: 3, updatedAt: new Date().toISOString() };
             const res = await fetch(`https://api.github.com/gists/${gistId}`, {
                 method: 'PATCH',
                 headers: {
@@ -795,6 +1275,12 @@
                 const local = loadSessions();
                 if (data.sessions.length >= local.length) {
                     localStorage.setItem(LS_SESSIONS, JSON.stringify(data.sessions));
+                }
+            }
+            if (Array.isArray(data.vocabulary)) {
+                const localVocab = loadVocabulary();
+                if (data.vocabulary.length >= localVocab.length) {
+                    localStorage.setItem(LS_VOCABULARY, JSON.stringify(data.vocabulary));
                 }
             }
             setSyncStatus('synced');
@@ -845,11 +1331,12 @@
     // ── Cloud backup: export / import ────────────────────────
     function exportBackup() {
         const data = {
-            version: 1,
+            version: 2,
             exportedAt: new Date().toISOString(),
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            sessions: loadSessions(),
-            reminder: loadReminder(),
+            sessions:   loadSessions(),
+            vocabulary: loadVocabulary(),
+            reminder:   loadReminder(),
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url  = URL.createObjectURL(blob);
@@ -868,6 +1355,7 @@
                 const data = JSON.parse(e.target.result);
                 if (!Array.isArray(data.sessions)) throw new Error('Invalid format');
                 saveSessions(data.sessions);
+                if (Array.isArray(data.vocabulary)) saveVocabulary(data.vocabulary);
                 if (data.reminder) saveReminder(data.reminder);
                 renderAll();
                 showToast(`📥 Imported ${data.sessions.length} sessions!`);
@@ -890,6 +1378,7 @@
         // Log session
         document.getElementById('btn-log-session').addEventListener('click', () => {
             const topic    = document.getElementById('topic-select').value;
+            const skill    = document.getElementById('skill-select').value;
             const duration = parseInt(document.getElementById('session-duration').value, 10);
             const date     = document.getElementById('session-date').value;
             const time     = document.getElementById('session-time').value;
@@ -898,7 +1387,7 @@
             if (!topic || !duration || duration < 1 || !date) {
                 showToast('❗ Please fill in topic, duration and date.'); return;
             }
-            logSession({ topic, duration, date, time, notes });
+            logSession({ topic, skill, duration, date, time, notes });
 
             document.getElementById('session-duration').value = '';
             document.getElementById('session-notes').value = '';
@@ -1083,9 +1572,146 @@
             showGhModalStatus('Disconnected from GitHub Sync.', 'info');
             showToast('Disconnected from GitHub Sync.');
         });
+
+        // ── Vocabulary Hub ────────────────────────────────
+        // Filters
+        document.getElementById('vocab-search').addEventListener('input', (e) => {
+            vocabSearch = e.target.value;
+            renderVocabHub(loadVocabulary());
+        });
+        document.getElementById('vocab-filter-cat').addEventListener('change', (e) => {
+            vocabFilterCat = e.target.value;
+            renderVocabHub(loadVocabulary());
+        });
+        document.getElementById('vocab-filter-state').addEventListener('change', (e) => {
+            vocabFilterState = e.target.value;
+            renderVocabHub(loadVocabulary());
+        });
+
+        // Edit / delete via event delegation on vocab-list
+        document.getElementById('vocab-list').addEventListener('click', (e) => {
+            const editBtn   = e.target.closest('.vocab-edit-btn');
+            const deleteBtn = e.target.closest('.vocab-delete-btn');
+
+            if (editBtn) {
+                const id = editBtn.dataset.id;
+                const vocab = loadVocabulary();
+                const word  = vocab.find(w => w.id === id);
+                if (word) openWordModal(word);
+            } else if (deleteBtn) {
+                const id = deleteBtn.dataset.id;
+                if (!confirm('Delete this word? This cannot be undone.')) return;
+                const vocab = loadVocabulary().filter(w => w.id !== id);
+                saveVocabulary(vocab);
+                const v2 = loadVocabulary();
+                renderVocabHub(v2);
+                renderReviewQueue(v2);
+                renderSmartPlan(loadSessions(), v2);
+                showToast('🗑 Word deleted.');
+            }
+        });
+
+        // Add word button
+        document.getElementById('btn-add-word').addEventListener('click', () => openWordModal(null));
+
+        // Word modal save
+        document.getElementById('btn-save-word').addEventListener('click', saveWord);
+
+        // Word modal close
+        function closeWordModal() {
+            document.getElementById('word-modal').style.display = 'none';
+        }
+        document.getElementById('btn-close-word').addEventListener('click', closeWordModal);
+        document.getElementById('btn-close-word-x').addEventListener('click', closeWordModal);
+        document.getElementById('word-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('word-modal')) closeWordModal();
+        });
+
+        // ── Flashcard review ──────────────────────────────
+        document.getElementById('fc-card').addEventListener('click', revealFlashcard);
+        document.getElementById('fc-btn-forgot').addEventListener('click', () => handleReviewResponse(0));
+        document.getElementById('fc-btn-hard').addEventListener('click',   () => handleReviewResponse(1));
+        document.getElementById('fc-btn-good').addEventListener('click',   () => handleReviewResponse(2));
+        document.getElementById('fc-btn-easy').addEventListener('click',   () => handleReviewResponse(3));
+
+        // Keyboard shortcuts for review
+        document.addEventListener('keydown', (e) => {
+            const fc = document.getElementById('review-flashcard');
+            if (!fc || fc.style.display === 'none') return;
+            if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                if (!reviewRevealed) revealFlashcard();
+            } else if (e.key === '1') handleReviewResponse(0);
+            else if (e.key === '2') handleReviewResponse(1);
+            else if (e.key === '3') handleReviewResponse(2);
+            else if (e.key === '4') handleReviewResponse(3);
+        });
     }
 
-    // ── Bootstrap ────────────────────────────────────────────
+    // ── Word modal helpers ────────────────────────────────────
+    function openWordModal(word) {
+        const modal = document.getElementById('word-modal');
+        document.getElementById('word-modal-title').textContent = word ? '✏️ Edit Word' : '📖 Add New Word';
+        document.getElementById('word-input').value       = word ? word.word         : '';
+        document.getElementById('word-difficulty').value  = word ? (word.difficulty || 'C1') : 'C1';
+        document.getElementById('word-category').value    = word ? (word.category    || 'Advanced Vocabulary') : 'Advanced Vocabulary';
+        document.getElementById('word-pronunciation').value = word ? (word.pronunciation || '') : '';
+        document.getElementById('word-definition').value  = word ? (word.definition  || '') : '';
+        document.getElementById('word-example').value     = word ? (word.example     || '') : '';
+        document.getElementById('word-edit-id').value     = word ? word.id : '';
+        modal.style.display = 'flex';
+        document.getElementById('word-input').focus();
+    }
+
+    function saveWord() {
+        const wordText    = document.getElementById('word-input').value.trim();
+        const definition  = document.getElementById('word-definition').value.trim();
+        if (!wordText || !definition) {
+            showToast('❗ Word and definition are required.'); return;
+        }
+
+        const difficulty    = document.getElementById('word-difficulty').value;
+        const category      = document.getElementById('word-category').value;
+        const pronunciation = document.getElementById('word-pronunciation').value.trim();
+        const example       = document.getElementById('word-example').value.trim();
+        const editId        = document.getElementById('word-edit-id').value;
+
+        const vocab = loadVocabulary();
+        if (editId) {
+            // Edit existing
+            const idx = vocab.findIndex(w => w.id === editId);
+            if (idx !== -1) {
+                vocab[idx] = { ...vocab[idx], word: wordText, definition, example, pronunciation, difficulty, category };
+            }
+        } else {
+            // Add new
+            vocab.push({
+                id: genId(),
+                word: wordText,
+                definition,
+                example,
+                pronunciation,
+                difficulty,
+                category,
+                easeFactor:   2.5,
+                interval:     1,
+                repetitions:  0,
+                nextReview:   todayStr(),
+                lastReviewed: null,
+                createdAt:    todayStr(),
+            });
+        }
+
+        saveVocabulary(vocab);
+        document.getElementById('word-modal').style.display = 'none';
+        const v2 = loadVocabulary();
+        renderVocabHub(v2);
+        renderReviewQueue(v2);
+        renderSmartPlan(loadSessions(), v2);
+        showToast(editId ? '✅ Word updated!' : `✅ "${wordText}" added to vocabulary!`);
+    }
+
+
     async function init() {
         detectTimezone();
         initEventListeners();
