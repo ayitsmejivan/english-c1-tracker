@@ -1636,6 +1636,8 @@
 
         // Keyboard shortcuts for review
         document.addEventListener('keydown', (e) => {
+            // Don't intercept shortcuts while the user is typing in an input/textarea
+            if (e.target.matches('input, textarea, select')) return;
             const fc = document.getElementById('review-flashcard');
             if (!fc || fc.style.display === 'none') return;
             if (e.key === ' ' || e.key === 'Enter') {
