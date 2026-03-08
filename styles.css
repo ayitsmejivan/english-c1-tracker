@@ -1842,3 +1842,440 @@ main {
     border-color: rgba(124,110,255,.22);
     box-shadow: var(--shadow-card), 0 0 0 1px rgba(124,110,255,.1), 0 0 40px rgba(124,110,255,.05);
 }
+
+/* =====================================================
+   MOTIVATIONAL COMPANION – Enhancement Styles (v4)
+   ===================================================== */
+
+/* ===== CONFETTI CONTAINER ===== */
+#confetti-container {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    overflow: hidden;
+}
+
+.confetti-particle {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 2px;
+    will-change: transform, opacity;
+}
+
+/* ===== ACCENT COLOR PICKER ===== */
+.accent-picker {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background: rgba(20,26,48,.6);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 99px;
+}
+
+.accent-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+    padding: 0;
+    outline: none;
+}
+.accent-dot:hover { transform: scale(1.25); }
+.accent-dot.active { border-color: rgba(255,255,255,.75); box-shadow: 0 0 8px currentColor; transform: scale(1.15); }
+.accent-dot--purple { background: #7c6eff; }
+.accent-dot--blue   { background: #38bdf8; }
+.accent-dot--green  { background: #00e5b8; }
+.accent-dot--orange { background: #ff8c42; }
+
+/* Accent theme overrides */
+body.accent-blue {
+    --accent:      #38bdf8;
+    --accent-rgb:  56,189,248;
+    --accent-glow: rgba(56,189,248,.4);
+}
+body.accent-green {
+    --accent:      #00e5b8;
+    --accent-rgb:  0,229,184;
+    --accent-glow: rgba(0,229,184,.4);
+}
+body.accent-orange {
+    --accent:      #ff8c42;
+    --accent-rgb:  255,140,66;
+    --accent-glow: rgba(255,140,66,.4);
+}
+
+/* ===== NAME EDIT AREA ===== */
+.btn-edit-name {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--radius-xs);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: .72rem;
+    font-family: inherit;
+    font-weight: 600;
+    padding: 4px 10px;
+    transition: all var(--transition);
+    white-space: nowrap;
+    letter-spacing: .01em;
+}
+.btn-edit-name:hover { background: rgba(255,255,255,.10); color: var(--text); border-color: rgba(255,255,255,.15); }
+#user-name-display { pointer-events: none; }
+
+.name-edit-row {
+    border-top: 1px solid rgba(255,255,255,.05);
+    padding: 8px 24px;
+    animation: slideDown .2s ease;
+}
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.name-edit-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.name-input {
+    background: rgba(20,26,48,.8);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--radius-xs);
+    color: var(--text);
+    padding: 6px 12px;
+    font-size: .85rem;
+    font-family: inherit;
+    outline: none;
+    width: 220px;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+.name-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.name-input::placeholder { color: var(--text-muted); }
+
+/* ===== TIME GREETING ===== */
+.time-greeting {
+    max-width: 1320px;
+    margin: 0 auto 12px;
+    font-size: .88rem;
+    font-weight: 700;
+    color: var(--text-mid);
+    letter-spacing: .01em;
+    padding: 0 4px;
+    animation: fadeInGreeting .6s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+@keyframes fadeInGreeting {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.greeting-streak-hint {
+    font-size: .75rem;
+    color: var(--accent3);
+    font-weight: 600;
+    background: rgba(255,77,109,.1);
+    border: 1px solid rgba(255,77,109,.2);
+    border-radius: 99px;
+    padding: 2px 10px;
+}
+
+/* ===== LOG SESSION BUTTON (larger, prominent) ===== */
+.btn.btn-log-main {
+    padding: 12px 28px;
+    font-size: 1rem;
+    font-weight: 900;
+    letter-spacing: .01em;
+    box-shadow: 0 4px 28px rgba(124,110,255,.5);
+    animation: btnPulse 3s ease-in-out infinite, btnGradShift 4s ease infinite;
+    position: relative;
+    overflow: hidden;
+}
+.btn.btn-log-main:hover {
+    box-shadow: 0 8px 40px rgba(124,110,255,.7);
+    transform: translateY(-3px) scale(1.03);
+}
+.btn.btn-log-main:active {
+    transform: translateY(0) scale(.97);
+}
+
+@keyframes btnPulse {
+    0%, 100% { box-shadow: 0 4px 28px rgba(124,110,255,.5); }
+    50%       { box-shadow: 0 4px 36px rgba(124,110,255,.75), 0 0 24px rgba(124,110,255,.3); }
+}
+
+/* Ripple effect */
+.btn-ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,.35);
+    pointer-events: none;
+    transform: scale(0);
+    animation: rippleAnim .6s linear;
+}
+@keyframes rippleAnim {
+    to { transform: scale(4); opacity: 0; }
+}
+
+/* ===== STREAK FLAME ANIMATION ===== */
+.streak-flame {
+    display: inline-block;
+    animation: flamePulse 2s ease-in-out infinite;
+    transform-origin: center bottom;
+}
+@keyframes flamePulse {
+    0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+    25%       { transform: scale(1.15) rotate(-4deg); filter: brightness(1.2); }
+    50%       { transform: scale(1.1) rotate(3deg); filter: brightness(1.3); }
+    75%       { transform: scale(1.05) rotate(-2deg); filter: brightness(1.1); }
+}
+.streak-flame.streak-zero { animation: flameDim 1.5s ease-in-out infinite; opacity: .45; }
+@keyframes flameDim {
+    0%, 100% { transform: scale(.85); filter: grayscale(.8); }
+    50%       { transform: scale(.9); filter: grayscale(.6); }
+}
+
+/* ===== WORD OF THE MOMENT WIDGET ===== */
+.card--word-of-moment {
+    grid-column: 1 / -1;
+    background: linear-gradient(135deg, rgba(8,13,26,.8) 0%, rgba(20,15,45,.75) 100%) !important;
+    border-color: rgba(124,110,255,.18) !important;
+}
+.rotating-word-wrap {
+    min-height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+}
+.rotating-word-content {
+    text-align: center;
+    transition: opacity .5s ease, transform .5s ease;
+}
+.rotating-word-content.fade-out { opacity: 0; transform: translateY(8px); }
+.rotating-word-content.fade-in  { opacity: 1; transform: translateY(0); animation: wordFadeIn .5s ease; }
+@keyframes wordFadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.rotating-word-text {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--text);
+    letter-spacing: -.02em;
+    margin-bottom: 4px;
+}
+.rotating-word-category {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.rotating-word-def {
+    font-size: .88rem;
+    color: var(--text-mid);
+    line-height: 1.55;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+/* ===== BADGE ENHANCEMENTS ===== */
+.badge.newly-earned {
+    animation: badgeCelebrate .7s cubic-bezier(.36,.07,.19,.97) both;
+}
+@keyframes badgeCelebrate {
+    0%   { transform: scale(1); }
+    20%  { transform: scale(1.25) rotate(-6deg); }
+    40%  { transform: scale(1.15) rotate(5deg); }
+    60%  { transform: scale(1.2) rotate(-3deg); }
+    80%  { transform: scale(1.05) rotate(2deg); }
+    100% { transform: scale(1) rotate(0deg); }
+}
+
+.badge-progress {
+    font-size: .62rem;
+    color: var(--accent);
+    font-weight: 700;
+    margin-top: 4px;
+    text-align: center;
+    opacity: .85;
+}
+.badge-progress-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255,255,255,.07);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: 5px;
+}
+.badge-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 99px;
+    transition: width .8s cubic-bezier(.4,0,.2,1);
+}
+
+/* ===== MILESTONE CELEBRATION OVERLAY ===== */
+.milestone-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.8);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9000;
+    padding: 20px;
+    animation: fadeInModal .3s ease;
+}
+.milestone-box {
+    background: rgba(10,15,30,.96);
+    border: 1px solid rgba(124,110,255,.35);
+    border-radius: var(--radius);
+    padding: 44px 40px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    animation: milestoneSlideUp .4s cubic-bezier(.4,0,.2,1);
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg), 0 0 60px rgba(124,110,255,.25);
+}
+.milestone-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent3), var(--accent), var(--accent4), var(--accent2));
+    background-size: 200% 100%;
+    animation: milestoneTopGrad 2s linear infinite;
+}
+@keyframes milestoneTopGrad {
+    0%   { background-position: 0% 0%; }
+    100% { background-position: 200% 0%; }
+}
+@keyframes milestoneSlideUp {
+    from { transform: translateY(32px) scale(.93); opacity: 0; }
+    to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+.milestone-icon {
+    font-size: 4rem;
+    display: block;
+    margin-bottom: 16px;
+    animation: milestoneIconBounce .8s cubic-bezier(.36,.07,.19,.97) both;
+}
+@keyframes milestoneIconBounce {
+    0%   { transform: scale(0) rotate(-20deg); opacity: 0; }
+    60%  { transform: scale(1.3) rotate(5deg); opacity: 1; }
+    80%  { transform: scale(.9) rotate(-3deg); }
+    100% { transform: scale(1) rotate(0deg); }
+}
+.milestone-title {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: -.03em;
+    margin-bottom: 10px;
+    background: linear-gradient(135deg, var(--accent4), var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.milestone-desc {
+    font-size: .93rem;
+    color: var(--text-mid);
+    line-height: 1.65;
+    margin-bottom: 24px;
+}
+
+/* ===== STAT CARD COUNT-UP ===== */
+.stat-value.counting { color: var(--accent4) !important; -webkit-text-fill-color: unset; }
+
+/* ===== SKELETON LOADING ===== */
+.skeleton {
+    background: linear-gradient(90deg,
+        rgba(255,255,255,.04) 25%,
+        rgba(255,255,255,.09) 50%,
+        rgba(255,255,255,.04) 75%);
+    background-size: 200% 100%;
+    animation: skeletonShimmer 1.5s ease infinite;
+    border-radius: var(--radius-xs);
+}
+@keyframes skeletonShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ===== COURSE MAP ENHANCEMENTS ===== */
+.course-item-label {
+    position: relative;
+    cursor: default;
+}
+.course-item-label::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 0;
+    height: 1px;
+    background: var(--accent);
+    transition: width .3s ease;
+}
+.course-item:hover .course-item-label::after { width: 100%; }
+.course-item-done .course-item-label {
+    color: var(--accent2);
+}
+.course-item-done .course-item-label::before {
+    content: '✓ ';
+    color: var(--accent2);
+    font-weight: 900;
+    animation: checkPop .4s cubic-bezier(.36,.07,.19,.97) both;
+}
+@keyframes checkPop {
+    0%   { transform: scale(0); opacity: 0; }
+    60%  { transform: scale(1.4); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== CALENDAR DAY HOVER ENHANCEMENT ===== */
+.streak-day {
+    transition: transform .15s cubic-bezier(.4,0,.2,1), filter .15s, box-shadow .15s;
+}
+.streak-day:hover {
+    transform: scale(1.4);
+    z-index: 10;
+    filter: brightness(1.5);
+    box-shadow: 0 4px 14px rgba(0,0,0,.5);
+}
+
+/* ===== ENHANCED TOAST ===== */
+.toast {
+    transition: opacity .3s ease;
+}
+.toast-success { border-color: rgba(0,229,184,.4) !important; border-top-color: rgba(0,229,184,.7) !important; }
+.toast-milestone { border-color: rgba(255,204,71,.4) !important; border-top-color: rgba(255,204,71,.7) !important; }
+.toast-error { border-color: rgba(255,77,109,.4) !important; border-top-color: rgba(255,77,109,.7) !important; }
+
+/* ===== SMOOTH SCROLL ===== */
+html { scroll-behavior: smooth; }
+
+/* ===== MOBILE: Hide accent picker labels on small screens ===== */
+@media (max-width: 640px) {
+    .accent-picker { display: none; }
+    .btn-edit-name { font-size: .68rem; padding: 3px 8px; }
+    .time-greeting { font-size: .8rem; }
+    .milestone-box { padding: 28px 22px; }
+    .milestone-title { font-size: 1.3rem; }
+    .milestone-icon { font-size: 3rem; }
+    .btn.btn-log-main { padding: 10px 20px; font-size: .9rem; }
+}
