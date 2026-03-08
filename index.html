@@ -64,6 +64,16 @@
             <h2>📝 Log Study Session</h2>
             <div class="form-grid">
                 <div class="form-group">
+                    <label for="skill-select">Skill</label>
+                    <select id="skill-select">
+                        <option value="General">General</option>
+                        <option value="Reading">📖 Reading</option>
+                        <option value="Listening">🎧 Listening</option>
+                        <option value="Speaking">🗣 Speaking</option>
+                        <option value="Writing">✍️ Writing</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="topic-select">Topic</label>
                     <select id="topic-select">
                         <option value="Sentence Stress">Sentence Stress</option>
@@ -176,6 +186,22 @@
             <div id="badges-grid" class="badges-grid"></div>
         </section>
 
+        <!-- === SKILL ANALYSIS === -->
+        <section class="card" id="skill-analysis">
+            <h2>📊 Skill Breakdown</h2>
+            <p class="card-sub" id="skill-insight">Log sessions with a skill type to see your C1 skill balance.</p>
+            <div class="skill-radar-wrap">
+                <canvas id="radarChart" width="260" height="260"></canvas>
+                <div class="skill-bars" id="skill-bars"></div>
+            </div>
+        </section>
+
+        <!-- === SMART DAILY PLAN === -->
+        <section class="card" id="smart-plan">
+            <h2>🎯 Smart Daily Plan</h2>
+            <div id="plan-content" class="plan-content"></div>
+        </section>
+
         <!-- === COURSE MAP === -->
         <section class="card" id="course-map">
             <h2>📚 Course Map</h2>
@@ -203,6 +229,64 @@
                     <tbody id="log-body"></tbody>
                 </table>
                 <p id="log-empty" class="empty-msg">No sessions logged yet.</p>
+            </div>
+        </section>
+
+        <!-- === VOCABULARY HUB === -->
+        <section class="card" id="vocab-hub">
+            <div class="section-header">
+                <h2>📚 Vocabulary Hub</h2>
+                <button id="btn-add-word" class="btn btn-primary btn-sm">+ Add Word</button>
+            </div>
+            <div class="vocab-filters">
+                <input type="text" id="vocab-search" placeholder="Search words…" class="search-input">
+                <select id="vocab-filter-cat" class="filter-select">
+                    <option value="">All Categories</option>
+                    <option value="Advanced Vocabulary">Advanced Vocabulary</option>
+                    <option value="Business English">Business English</option>
+                    <option value="Academic">Academic</option>
+                    <option value="Idioms">Idioms</option>
+                    <option value="Phrasal Verbs">Phrasal Verbs</option>
+                    <option value="Collocations">Collocations</option>
+                    <option value="Grammar">Grammar</option>
+                    <option value="Other">Other</option>
+                </select>
+                <select id="vocab-filter-state" class="filter-select">
+                    <option value="">All States</option>
+                    <option value="new">New</option>
+                    <option value="learning">Learning</option>
+                    <option value="review">Review</option>
+                    <option value="mastered">Mastered</option>
+                </select>
+            </div>
+            <div id="vocab-stats" class="vocab-stats"></div>
+            <div id="vocab-list" class="vocab-list"></div>
+            <p id="vocab-empty" class="empty-msg" style="display:none">No vocabulary added yet. Click "+ Add Word" to start building your list!</p>
+        </section>
+
+        <!-- === REVIEW QUEUE === -->
+        <section class="card" id="review-queue-section">
+            <h2>🧠 Review Queue</h2>
+            <div id="review-queue-summary" class="review-queue-summary"></div>
+            <div id="review-flashcard" class="review-flashcard" style="display:none">
+                <div class="flashcard-progress">
+                    <span id="fc-progress-text">1 / 10</span>
+                    <div class="fc-progress-bar"><div id="fc-progress-fill" class="fc-progress-fill"></div></div>
+                </div>
+                <div class="flashcard-card" id="fc-card">
+                    <div class="fc-word" id="fc-word"></div>
+                    <div class="fc-category" id="fc-category"></div>
+                    <div class="fc-reveal-hint" id="fc-reveal-hint">Click to reveal definition</div>
+                    <div class="fc-definition" id="fc-definition" style="display:none"></div>
+                    <div class="fc-example" id="fc-example" style="display:none"></div>
+                    <div class="fc-pronunciation" id="fc-pronunciation" style="display:none"></div>
+                </div>
+                <div class="fc-actions" id="fc-actions" style="display:none">
+                    <button class="btn fc-btn-forgot" id="fc-btn-forgot">😖 Forgot</button>
+                    <button class="btn fc-btn-hard" id="fc-btn-hard">😓 Hard</button>
+                    <button class="btn fc-btn-good" id="fc-btn-good">🙂 Good</button>
+                    <button class="btn fc-btn-easy" id="fc-btn-easy">😎 Easy</button>
+                </div>
             </div>
         </section>
 
@@ -279,6 +363,62 @@
                 <button id="btn-gh-pull" class="btn btn-secondary" style="display:none" title="Pull latest data from GitHub">⬇ Pull from GitHub</button>
                 <button id="btn-gh-disconnect" class="btn btn-danger btn-sm" style="display:none">Disconnect</button>
                 <button id="btn-close-github" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ADD / EDIT WORD MODAL ===== -->
+    <div id="word-modal" class="modal" style="display:none">
+        <div class="modal-box modal-box--word">
+            <div class="modal-header-row">
+                <h3 id="word-modal-title">📖 Add New Word</h3>
+                <button class="modal-close-x" id="btn-close-word-x">✕</button>
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="word-input">Word / Phrase *</label>
+                    <input type="text" id="word-input" placeholder="e.g. ephemeral">
+                </div>
+                <div class="form-group">
+                    <label for="word-difficulty">Difficulty</label>
+                    <select id="word-difficulty">
+                        <option value="A2">A2</option>
+                        <option value="B1">B1</option>
+                        <option value="B2">B2</option>
+                        <option value="C1" selected>C1</option>
+                        <option value="C2">C2</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="word-category">Category</label>
+                    <select id="word-category">
+                        <option value="Advanced Vocabulary">Advanced Vocabulary</option>
+                        <option value="Business English">Business English</option>
+                        <option value="Academic">Academic</option>
+                        <option value="Idioms">Idioms</option>
+                        <option value="Phrasal Verbs">Phrasal Verbs</option>
+                        <option value="Collocations">Collocations</option>
+                        <option value="Grammar">Grammar</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="word-pronunciation">Pronunciation (optional)</label>
+                    <input type="text" id="word-pronunciation" placeholder="e.g. /ɪˈfem.ər.əl/">
+                </div>
+                <div class="form-group form-group--full">
+                    <label for="word-definition">Definition *</label>
+                    <textarea id="word-definition" rows="2" placeholder="lasting for a very short time"></textarea>
+                </div>
+                <div class="form-group form-group--full">
+                    <label for="word-example">Example sentence</label>
+                    <textarea id="word-example" rows="2" placeholder="The beauty of cherry blossoms is ephemeral."></textarea>
+                </div>
+            </div>
+            <input type="hidden" id="word-edit-id">
+            <div class="modal-actions">
+                <button id="btn-save-word" class="btn btn-primary">💾 Save Word</button>
+                <button id="btn-close-word" class="btn btn-outline">Cancel</button>
             </div>
         </div>
     </div>
